@@ -955,10 +955,19 @@ func applyDingTalkEnvOverrides(cfg *Config) {
 	if value := strings.TrimSpace(os.Getenv("DINGTALK_AUTH_ENABLE")); value != "" {
 		cfg.DingTalkAuth.Enable = strings.EqualFold(value, "true")
 	}
+	// APP_KEY/APP_SECRET are the canonical names (they match DingTalk's own
+	// console terminology). CLIENT_ID/CLIENT_SECRET are accepted as aliases
+	// because the OAuth2 request field is literally `clientId`/`clientSecret`,
+	// so operators reasonably reach for either. The canonical name wins when
+	// both are set.
 	if value := strings.TrimSpace(os.Getenv("DINGTALK_APP_KEY")); value != "" {
+		cfg.DingTalkAuth.AppKey = value
+	} else if value := strings.TrimSpace(os.Getenv("DINGTALK_CLIENT_ID")); value != "" {
 		cfg.DingTalkAuth.AppKey = value
 	}
 	if value := strings.TrimSpace(os.Getenv("DINGTALK_APP_SECRET")); value != "" {
+		cfg.DingTalkAuth.AppSecret = value
+	} else if value := strings.TrimSpace(os.Getenv("DINGTALK_CLIENT_SECRET")); value != "" {
 		cfg.DingTalkAuth.AppSecret = value
 	}
 	if value := strings.TrimSpace(os.Getenv("DINGTALK_CORP_ID")); value != "" {

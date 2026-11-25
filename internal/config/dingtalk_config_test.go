@@ -67,6 +67,46 @@ func TestDingTalkDefaults(t *testing.T) {
 	}
 }
 
+// TestDingTalkClientIDAlias verifies the CLIENT_ID/CLIENT_SECRET spellings
+// work, since the OAuth2 wire fields are clientId/clientSecret and operators
+// commonly use those names.
+func TestDingTalkClientIDAlias(t *testing.T) {
+	t.Setenv("DINGTALK_AUTH_ENABLE", "true")
+	t.Setenv("DINGTALK_CLIENT_ID", "alias-key")
+	t.Setenv("DINGTALK_CLIENT_SECRET", "alias-secret")
+
+	cfg := &Config{}
+	applyDingTalkEnvOverrides(cfg)
+
+	if cfg.DingTalkAuth.AppKey != "alias-key" {
+		t.Fatalf("app key = %q, want alias-key", cfg.DingTalkAuth.AppKey)
+	}
+	if cfg.DingTalkAuth.AppSecret != "alias-secret" {
+		t.Fatalf("app secret not read from DINGTALK_CLIENT_SECRET")
+	}
+	if !cfg.DingTalkAuth.Enabled() {
+		t.Fatal("aliased credentials must enable DingTalk")
+	}
+}
+
+// TestDingTalkAppKeyWinsOverAlias pins the precedence when both names are set.
+func TestDingTalkAppKeyWinsOverAlias(t *testing.T) {
+	t.Setenv("DINGTALK_APP_KEY", "canonical")
+	t.Setenv("DINGTALK_CLIENT_ID", "alias")
+	t.Setenv("DINGTALK_APP_SECRET", "canonical-secret")
+	t.Setenv("DINGTALK_CLIENT_SECRET", "alias-secret")
+
+	cfg := &Config{}
+	applyDingTalkEnvOverrides(cfg)
+
+	if cfg.DingTalkAuth.AppKey != "canonical" {
+		t.Fatalf("app key = %q, want canonical", cfg.DingTalkAuth.AppKey)
+	}
+	if cfg.DingTalkAuth.AppSecret != "canonical-secret" {
+		t.Fatalf("app secret = %q, want canonical-secret", cfg.DingTalkAuth.AppSecret)
+	}
+}
+
 // TestDingTalkDisabledByMissingCredentials pins the fail-safe: enable alone is
 // not enough, so a half-configured deployment does not expose a broken button.
 func TestDingTalkDisabledByMissingCredentials(t *testing.T) {
