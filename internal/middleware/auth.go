@@ -51,6 +51,14 @@ var noAuthAPI = map[string][]string{
 	"/api/v1/auth/oidc/url":           {"GET"},
 	"/api/v1/auth/oidc/start":         {"GET"},
 	"/api/v1/auth/oidc/callback":      {"GET"},
+	// DingTalk login is the same shape as OIDC: the login page probes the
+	// config before anyone has a session, and the provider redirects the
+	// browser to the callback without a WeKnora bearer token. Omitting these
+	// made every DingTalk route answer 401 to the login page.
+	"/api/v1/auth/dingtalk/config":   {"GET"},
+	"/api/v1/auth/dingtalk/url":      {"GET"},
+	"/api/v1/auth/dingtalk/start":    {"GET"},
+	"/api/v1/auth/dingtalk/callback": {"GET"},
 	// MCP OAuth provider redirect: the third-party authorization server
 	// redirects the browser here without a WeKnora bearer token. The request
 	// is authenticated by the opaque, single-use `state` parameter instead.

@@ -40,6 +40,16 @@ services:
       dockerfile: docker/Dockerfile.app
       args:
         - APK_MIRROR_ARG=${APK_MIRROR_ARG:-}
+        # Go module proxy. Dockerfile.app reads GOPROXY_ARG into ENV GOPROXY,
+        # but leaves it empty when this is not passed — which falls back to
+        # proxy.golang.org and fails on networks that cannot reach it.
+        # Override in .env for restricted networks, e.g. https://goproxy.cn,direct
+        - GOPROXY_ARG=${GOPROXY_ARG:-}
+        - GOSUMDB_ARG=${GOSUMDB_ARG:-off}
+        # Optional local-browser helper. It clones github.com and downloads Rust
+        # crates / npm packages at build time, so set BROWSERSKILL_ARG=0 on
+        # networks that cannot reach those hosts.
+        - BROWSERSKILL_ARG=${BROWSERSKILL_ARG:-1}
         - WITH_ANYDOC=${WITH_ANYDOC:-1}
         # Build metadata shown on the system-info page. start_all.sh injects
         # these from git and the VERSION file; with a plain `docker compose

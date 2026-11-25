@@ -1,12 +1,23 @@
 # Build extension and daemon from the same pinned source on the runtime architecture.
+#
+# The stage always produces a directory, but only builds the real artifacts when
+# BROWSERSKILL_ARG=1. Building them requires cloning github.com and downloading
+# Rust crates / npm packages, which fails on networks that cannot reach those
+# hosts; the runtime image is still complete without them, it just loses the
+# optional "local browser" feature (docs/05-clients/09-local-browser.md).
+# Enable with: docker compose build --build-arg BROWSERSKILL_ARG=1
 FROM --platform=$TARGETPLATFORM node:24-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS browserskill
 WORKDIR /build
+ARG BROWSERSKILL_ARG=1
 # Use the same optional Debian mirror as the Go builder and runtime stages.
 ARG APK_MIRROR_ARG
 # This base image has no CA certificates. Install them from the original HTTP
 # Debian source before swapping in a mirror: mirrors.tencent.com redirects
 # apt to HTTPS, and that handshake fails without a trust store.
-RUN if [ -n "$APK_MIRROR_ARG" ]; then \
+RUN if [ "$BROWSERSKILL_ARG" != "1" ]; then \
+        mkdir -p /opt/weknora/browserskill && exit 0; \
+    fi; \
+    if [ -n "$APK_MIRROR_ARG" ]; then \
         apt-get update && \
         apt-get install -y --no-install-recommends ca-certificates && \
         rm -rf /var/lib/apt/lists/* && \
@@ -17,11 +28,15 @@ RUN if [ -n "$APK_MIRROR_ARG" ]; then \
     rm -rf /var/lib/apt/lists/*
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
 ENV PATH=/usr/local/cargo/bin:$PATH
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+RUN if [ "$BROWSERSKILL_ARG" = "1" ]; then \
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable; \
+    fi
 COPY scripts/build_browserskill.sh scripts/browserskill-release.json ./scripts/
 ARG TARGETOS
 ARG TARGETARCH
-RUN bash scripts/build_browserskill.sh /opt/weknora/browserskill "${TARGETOS}/${TARGETARCH}"
+RUN if [ "$BROWSERSKILL_ARG" = "1" ]; then \
+        bash scripts/build_browserskill.sh /opt/weknora/browserskill "${TARGETOS}/${TARGETARCH}"; \
+    fi
 
 # Build stage
 FROM golang:1.26-bookworm AS builder
