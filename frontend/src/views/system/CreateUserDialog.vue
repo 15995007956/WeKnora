@@ -72,6 +72,17 @@
               <t-input v-model="form.email" type="text" clearable autocomplete="off" :disabled="submitting"
                 :placeholder="t('system.globalSettings.createUser.emailPlaceholder')" />
             </t-form-item>
+            <!-- Workspace placement: pick a workspace to skip the personal one
+                 and add the user directly as a member (DingTalk allow-list). -->
+            <t-form-item :label="t('system.globalSettings.createUser.joinTenantLabel')" name="joinTenantId">
+              <t-select v-model="form.joinTenantId" :options="tenantOptions" clearable filterable
+                :loading="tenantsLoading" :disabled="submitting"
+                :placeholder="t('system.globalSettings.createUser.joinTenantPlaceholder')" />
+            </t-form-item>
+            <t-form-item v-if="form.joinTenantId" :label="t('system.globalSettings.createUser.joinRoleLabel')"
+              name="joinRole">
+              <t-select v-model="form.joinRole" :options="roleOptions" :disabled="submitting" />
+            </t-form-item>
             <t-form-item name="autoGenerate">
               <t-checkbox v-model="form.autoGenerate" :disabled="submitting">
                 {{ t('system.globalSettings.createUser.autoGenerateLabel') }}
@@ -113,6 +124,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import type { FormInstanceFunctions, FormRule } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { createSystemUser, type CreateSystemUserRequest } from '@/api/system'
+import { listAllTenants } from '@/api/tenant'
 import { getAuthConfig } from '@/api/auth'
 import { copyWithToast } from '@/utils/clipboard'
 import { newPasswordRules } from '@/utils/passwordPolicy'
@@ -143,7 +155,35 @@ const form = reactive({
   autoGenerate: true,
   newPassword: '',
   confirmPassword: '',
+  joinTenantId: '' as string | number,
+  joinRole: 'viewer' as string,
 })
+
+// Workspace choices for the "add to an existing workspace" path. Loaded lazily
+// when the dialog opens; an empty list simply hides the option's effect.
+const tenants = ref<Array<{ id: number; name: string }>>([])
+const tenantsLoading = ref(false)
+const tenantOptions = computed(() =>
+  tenants.value.map((t0) => ({ label: t0.name || `#${t0.id}`, value: t0.id })))
+const roleOptions = computed(() => [
+  { label: t('system.globalSettings.createUser.roleViewer'), value: 'viewer' },
+  { label: t('system.globalSettings.createUser.roleContributor'), value: 'contributor' },
+  { label: t('system.globalSettings.createUser.roleAdmin'), value: 'admin' },
+])
+
+const loadTenants = async () => {
+  if (tenants.value.length || tenantsLoading.value) return
+  tenantsLoading.value = true
+  try {
+    const resp = await listAllTenants()
+    const items = resp?.data?.items ?? []
+    tenants.value = items.map((t0) => ({ id: Number(t0.id), name: t0.name || '' }))
+  } catch {
+    tenants.value = []
+  } finally {
+    tenantsLoading.value = false
+  }
+}
 const createUserSuccess = ref<CreateUserReveal | null>(null)
 const locked = computed(() => submitting.value || createUserSuccess.value !== null)
 const complexPasswordEnabled = ref(false)
@@ -162,7 +202,10 @@ const rules = computed<Record<string, FormRule[]>>(() => ({
     { min: 2, max: 50, message: t('system.globalSettings.createUser.validation.usernameLength'), trigger: 'blur' },
   ],
   email: [
-    { required: true, message: t('system.globalSettings.createUser.validation.emailRequired'), trigger: 'blur' },
+    // Required only for ordinary password accounts. A pre-created account that
+    // joins a workspace is identified by username, so the server can supply a
+    // placeholder address when none is given.
+    { required: !form.joinTenantId, message: t('system.globalSettings.createUser.validation.emailRequired'), trigger: 'blur' },
     { email: true, message: t('system.globalSettings.createUser.validation.emailInvalid'), trigger: 'blur' },
   ],
   newPassword: newPasswordRules(t, complexPasswordEnabled.value),
@@ -187,6 +230,7 @@ watch(() => props.visible, async (visible) => {
   createUserSuccess.value = null
   resetFormFields()
   await loadAuthConfig()
+  void loadTenants()
   await nextTick()
   formRef.value?.clearValidate?.()
 })
@@ -236,6 +280,13 @@ async function submit() {
     const payload: CreateSystemUserRequest = {
       username: form.username.trim(),
       email: form.email.trim(),
+    }
+    // Joining an existing workspace makes email optional: the account is
+    // identified by username (DingTalk allow-list) and the server fills in a
+    // placeholder address.
+    if (form.joinTenantId) {
+      payload.join_tenant_id = Number(form.joinTenantId)
+      payload.join_role = form.joinRole || 'viewer'
     }
     if (!form.autoGenerate) {
       payload.password = form.newPassword

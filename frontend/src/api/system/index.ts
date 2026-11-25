@@ -393,9 +393,13 @@ export async function resetUserPassword(req: ResetUserPasswordRequest): Promise<
 }
 
 export interface CreateSystemUserRequest {
-  /** 2-50 characters. */
+  /** 2-50 characters; CJK is allowed (DingTalk nicknames are often Chinese). */
   username: string
-  /** Must be a valid email address. */
+  /**
+   * Optional when join_tenant_id is set: pre-created SSO accounts are
+   * identified by username, so the server can mint a non-routable placeholder.
+   * Required for ordinary password accounts.
+   */
   email: string
   /**
    * Optional. Omit the key (or send null) to have the server generate a
@@ -404,6 +408,14 @@ export interface CreateSystemUserRequest {
    * password policy and can be rejected.
    */
   password?: string
+  /**
+   * When set, the new account joins this workspace with join_role instead of
+   * getting a personal workspace. Used to pre-create DingTalk allow-list
+   * accounts in one shared workspace.
+   */
+  join_tenant_id?: number
+  /** Workspace role for join_tenant_id: viewer | contributor | admin. */
+  join_role?: string
 }
 
 export interface CreateSystemUserResponse {

@@ -460,6 +460,15 @@ type DingTalkAuthConfig struct {
 	// then can that person log in. The nickname is used only for the first
 	// login; the binding is then keyed on the immutable unionId.
 	BindByNickname bool `yaml:"bind_by_nickname" json:"bind_by_nickname"`
+	// BindByEmailPrefix lets an unbound DingTalk login claim a pre-created
+	// account whose username equals the local part of the email DingTalk
+	// returns (honestsky@corp.com -> "honestsky").
+	//
+	// Preferred over nickname matching where available: an email local part is
+	// unique inside the organization and does not change when a person edits
+	// their display name, whereas nicknames repeat and churn. Tried before
+	// BindByNickname when both are on.
+	BindByEmailPrefix bool `yaml:"bind_by_email_prefix" json:"bind_by_email_prefix"`
 	// BootstrapFirstUser allows the very first DingTalk login on a completely
 	// empty deployment to create the account and promote it to system
 	// administrator, even under provisioning_mode=deny.
@@ -1007,6 +1016,9 @@ func applyDingTalkEnvOverrides(cfg *Config) {
 	}
 	if value := strings.TrimSpace(os.Getenv("DINGTALK_BIND_BY_NICKNAME")); value != "" {
 		cfg.DingTalkAuth.BindByNickname = strings.EqualFold(value, "true")
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_BIND_BY_EMAIL_PREFIX")); value != "" {
+		cfg.DingTalkAuth.BindByEmailPrefix = strings.EqualFold(value, "true")
 	}
 	if value := strings.TrimSpace(os.Getenv("DINGTALK_BOOTSTRAP_FIRST_USER")); value != "" {
 		cfg.DingTalkAuth.BootstrapFirstUser = strings.EqualFold(value, "true")

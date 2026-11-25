@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -2079,9 +2080,9 @@ func (s *userService) provisionOIDCUser(
 }
 
 func (s *userService) generateOIDCUsername(ctx context.Context, info *types.OIDCUserInfo) string {
-	base := sanitizeUsernameCandidate(info.Username)
+	base := sanitizeUsernamePreservingUnicode(info.Username)
 	if base == "" {
-		base = sanitizeUsernameCandidate(strings.Split(info.Email, "@")[0])
+		base = sanitizeUsernamePreservingUnicode(strings.Split(info.Email, "@")[0])
 	}
 	if base == "" {
 		base = "oidc-user"
@@ -2373,6 +2374,52 @@ func extractClaimAsString(claims map[string]interface{}, key string) string {
 	default:
 		return strings.TrimSpace(fmt.Sprint(v))
 	}
+}
+
+// sanitizeUsernamePreservingUnicode keeps letters from every script (including
+// CJK) plus digits and the usual separators.
+//
+// It exists because sanitizeUsernameCandidate strips non-ASCII characters, which
+// turns a Chinese DingTalk nickname such as "林成" into an empty string and
+// forces the account to fall back to a transliterated or email-derived name.
+// usernames are stored as varchar(100) and validated by rune count, so
+// non-ASCII text is fine.
+//
+// Whitespace and control characters are still collapsed to a single dash so a
+// display name cannot smuggle padding or line breaks into an identifier.
+func sanitizeUsernamePreservingUnicode(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.':
+			// Lower-casing ASCII keeps lookups stable without mangling CJK.
+			if r < unicode.MaxASCII {
+				r = unicode.ToLower(r)
+			}
+			b.WriteRune(r)
+			lastDash = false
+		case unicode.IsSpace(r) || unicode.IsControl(r) || r == '-' || r == '@':
+			if !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		default:
+			// Punctuation and symbols are dropped rather than replaced, so
+			// "林·成" becomes "林成" instead of "林-成".
+		}
+	}
+	result := strings.Trim(b.String(), "-._")
+	// length in runes, matching the 2-50 rune rule the API enforces
+	if utf8.RuneCountInString(result) > 50 {
+		runes := []rune(result)
+		result = strings.Trim(string(runes[:50]), "-._")
+	}
+	return result
 }
 
 func sanitizeUsernameCandidate(value string) string {
