@@ -50,6 +50,13 @@ type UserPreferences struct {
 	// password via ChangePassword (which clears this flag).
 	OidcOnlyLogin *bool `json:"oidc_only_login,omitempty"`
 
+	// SsoOnlyLogin is the DingTalk equivalent of OidcOnlyLogin: set when an
+	// account was auto-provisioned by an external identity provider with a
+	// generated password, so the profile UI hides password rotation until the
+	// user sets one they know. Kept separate from OidcOnlyLogin so the UI can
+	// explain which provider the account came from.
+	SsoOnlyLogin *bool `json:"sso_only_login,omitempty"`
+
 	// Gallery holds the user's image-gallery UI state: the search
 	// activation mode and the per-attribute search-field toggles. Written
 	// by the gallery's mode / checkbox interactions via the preferences
@@ -188,6 +195,14 @@ type OIDCConfigResponse struct {
 	ProviderDisplayName string `json:"provider_display_name,omitempty"`
 }
 
+// DingTalkConfigResponse reports whether the DingTalk login entry should be
+// rendered. It intentionally exposes no credential material.
+type DingTalkConfigResponse struct {
+	Success             bool   `json:"success"`
+	Enabled             bool   `json:"enabled"`
+	ProviderDisplayName string `json:"provider_display_name,omitempty"`
+}
+
 type OIDCCallbackResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
@@ -233,9 +248,21 @@ type RegisterRequest struct {
 // random one and returns it exactly once. Any provided value, the
 // empty string included, is subject to the password policy.
 type AdminCreateUserRequest struct {
-	Username string  `json:"username" binding:"required,min=2,max=50"`
-	Email    string  `json:"email"    binding:"required,email"`
+	Username string `json:"username" binding:"required,min=2,max=50"`
+	// Email is required for ordinary password accounts. It becomes optional
+	// only when JoinTenantID is set: those accounts exist for DingTalk
+	// nickname claiming, and a DingTalk nickname is not an email address.
+	Email    string  `json:"email"    binding:"omitempty,email"`
 	Password *string `json:"password"`
+
+	// JoinTenantID, when set, makes the new account a member of that workspace
+	// with JoinRole instead of provisioning a personal workspace. This is the
+	// allow-list path: the administrator creates the employee up front, the
+	// employee's first DingTalk login claims the account by nickname.
+	JoinTenantID uint64 `json:"join_tenant_id"`
+	// JoinRole is the workspace role for JoinTenantID. Empty means Viewer
+	// (least privilege). Ignored when JoinTenantID is 0.
+	JoinRole string `json:"join_role"`
 }
 
 // TenantProvisioningMode controls what UserService.Register does after it

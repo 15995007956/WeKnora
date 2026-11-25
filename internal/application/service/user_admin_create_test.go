@@ -18,6 +18,7 @@ type adminCreateUserRepo struct {
 	existingByEmail    *types.User
 	existingByUsername *types.User
 	created            *types.User
+	deletedIDs         []string
 }
 
 func (r *adminCreateUserRepo) GetUserByEmail(context.Context, string) (*types.User, error) {
@@ -37,6 +38,19 @@ func (r *adminCreateUserRepo) GetUserByUsername(context.Context, string) (*types
 func (r *adminCreateUserRepo) CreateUser(_ context.Context, user *types.User) error {
 	copied := *user
 	r.created = &copied
+	return nil
+}
+
+// UpdateUser records the home-tenant write that follows a workspace join.
+func (r *adminCreateUserRepo) UpdateUser(_ context.Context, user *types.User) error {
+	copied := *user
+	r.created = &copied
+	return nil
+}
+
+// DeleteUser records the rollback that runs when the membership step fails.
+func (r *adminCreateUserRepo) DeleteUser(_ context.Context, id string) error {
+	r.deletedIDs = append(r.deletedIDs, id)
 	return nil
 }
 
@@ -344,5 +358,142 @@ func TestAdminCreateUserRejectsMissingIdentity(t *testing.T) {
 	}
 	if repo.created != nil {
 		t.Fatal("invalid request reached persistence")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Pre-created accounts that join an existing workspace
+// ---------------------------------------------------------------------------
+
+// recordingMemberService records AddMember calls so tests can assert the
+// employee landed in the administrator's workspace with the right role.
+type recordingMemberService struct {
+	interfaces.TenantMemberService
+	addedTenantID uint64
+	addedUserID   string
+	addedRole     types.TenantRole
+}
+
+func (r *recordingMemberService) AddMember(
+	_ context.Context, userID string, tenantID uint64, role types.TenantRole, _ *string,
+) (*types.TenantMember, error) {
+	r.addedUserID, r.addedTenantID, r.addedRole = userID, tenantID, role
+	return &types.TenantMember{Status: types.TenantMemberStatusActive, Role: role}, nil
+}
+
+// newJoinTenantService wires a service whose Register runs tenantless and
+// whose membership service records the AddMember call.
+func newJoinTenantService(repo *adminCreateUserRepo, members *recordingMemberService) *userService {
+	return &userService{
+		userRepo:      repo,
+		tenantService: &fakeTenantService{tenants: map[uint64]*types.Tenant{7: {ID: 7, Name: "Corp"}}},
+		memberService: members,
+	}
+}
+
+// TestAdminCreateUserJoinsExistingWorkspace covers the allow-list path: no
+// personal workspace is created, and the employee becomes a member of the
+// administrator's workspace instead.
+func TestAdminCreateUserJoinsExistingWorkspace(t *testing.T) {
+	repo := &adminCreateUserRepo{}
+	members := &recordingMemberService{}
+	svc := newJoinTenantService(repo, members)
+
+	user, _, err := svc.AdminCreateUser(context.Background(), &types.AdminCreateUserRequest{
+		Username:     "史元东",
+		JoinTenantID: 7,
+	}, types.TenantProvisioningCreatePersonal)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if members.addedTenantID != 7 {
+		t.Fatalf("joined tenant = %d, want 7", members.addedTenantID)
+	}
+	if members.addedUserID != user.ID {
+		t.Fatalf("joined user = %q, want %q", members.addedUserID, user.ID)
+	}
+	if members.addedRole != types.TenantRoleViewer {
+		t.Fatalf("default role = %q, want viewer (least privilege)", members.addedRole)
+	}
+	if user.TenantID != 7 {
+		t.Fatalf("home tenant = %d, want 7", user.TenantID)
+	}
+	// A Chinese nickname must survive as the username (no sanitisation).
+	if user.Username != "史元东" {
+		t.Fatalf("username = %q, want 史元东", user.Username)
+	}
+	// Email is optional here, but the row still needs a unique placeholder.
+	if !strings.HasSuffix(user.Email, "@dingtalk.invalid") {
+		t.Fatalf("email = %q, want a *.invalid placeholder", user.Email)
+	}
+}
+
+// TestAdminCreateUserJoinHonoursRole pins explicit role assignment.
+func TestAdminCreateUserJoinHonoursRole(t *testing.T) {
+	repo := &adminCreateUserRepo{}
+	members := &recordingMemberService{}
+	svc := newJoinTenantService(repo, members)
+
+	_, _, err := svc.AdminCreateUser(context.Background(), &types.AdminCreateUserRequest{
+		Username:     "史元东",
+		JoinTenantID: 7,
+		JoinRole:     string(types.TenantRoleViewer),
+	}, types.TenantProvisioningCreatePersonal)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if members.addedRole != types.TenantRoleViewer {
+		t.Fatalf("role = %q, want viewer", members.addedRole)
+	}
+}
+
+// TestAdminCreateUserJoinRejectsOwnerRole guards ownership escalation: a typo
+// must not hand away the workspace.
+func TestAdminCreateUserJoinRejectsOwnerRole(t *testing.T) {
+	repo := &adminCreateUserRepo{}
+	members := &recordingMemberService{}
+	svc := newJoinTenantService(repo, members)
+
+	_, _, err := svc.AdminCreateUser(context.Background(), &types.AdminCreateUserRequest{
+		Username:     "史元东",
+		JoinTenantID: 7,
+		JoinRole:     string(types.TenantRoleOwner),
+	}, types.TenantProvisioningCreatePersonal)
+	if err == nil {
+		t.Fatal("expected owner role to be rejected")
+	}
+	if members.addedTenantID != 0 {
+		t.Fatal("membership must not be written for a rejected role")
+	}
+	if len(repo.deletedIDs) != 1 {
+		t.Fatalf("the half-created account must be rolled back, deletions = %v", repo.deletedIDs)
+	}
+}
+
+// TestAdminCreateUserStillRequiresEmailWithoutJoin keeps the old contract for
+// ordinary password accounts.
+func TestAdminCreateUserStillRequiresEmailWithoutJoin(t *testing.T) {
+	repo := &adminCreateUserRepo{}
+	svc := newAdminCreateUserService(repo)
+
+	_, _, err := svc.AdminCreateUser(context.Background(), &types.AdminCreateUserRequest{
+		Username: "alice",
+	}, types.TenantProvisioningTenantless)
+	if err == nil || !strings.Contains(err.Error(), "email is required") {
+		t.Fatalf("expected an email-required error, got: %v", err)
+	}
+}
+
+// TestAdminPlaceholderEmailIsUniqueForCJKNames documents that two Chinese
+// nicknames which sanitise to the same (empty) local part still get distinct
+// addresses, because users.email is UNIQUE.
+func TestAdminPlaceholderEmailIsUniqueForCJKNames(t *testing.T) {
+	a := adminPlaceholderEmail("史元东")
+	b := adminPlaceholderEmail("王小明")
+	if a == b {
+		t.Fatalf("two CJK names collided on %q", a)
+	}
+	if !strings.HasSuffix(a, "@dingtalk.invalid") {
+		t.Fatalf("placeholder %q must use the reserved .invalid TLD", a)
 	}
 }

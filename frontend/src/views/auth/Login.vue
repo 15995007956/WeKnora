@@ -233,6 +233,16 @@
                 class="oidc-button" @click="handleOIDCLogin">
                 {{ oidcLoading ? $t('auth.redirectingToOIDC') : oidcLoginText }}
               </t-button>
+
+              <!-- 钉钉扫码登录：与 OIDC 互不影响，任一未启用则整块不渲染。 -->
+              <div v-if="dingTalkEnabled" class="oidc-divider">
+                <span>{{ $t('auth.orContinueWith') }}</span>
+              </div>
+
+              <t-button v-if="dingTalkEnabled" theme="default" size="large" block :loading="dingTalkLoading"
+                :disabled="loading" class="oidc-button dingtalk-button" @click="handleDingTalkLogin">
+                {{ dingTalkLoading ? $t('auth.redirectingToDingTalk') : dingTalkLoginText }}
+              </t-button>
             </t-form>
 
             <!-- Features list -->
@@ -354,6 +364,8 @@ import {
   register,
   getOIDCAuthorizationURL,
   getOIDCConfig,
+  getDingTalkAuthorizationURL,
+  getDingTalkConfig,
   autoSetup,
   getAuthConfig,
   userInfoFromApi,
@@ -416,6 +428,10 @@ const isRegisterMode = ref(false)
 const showLanguageMenu = ref(false)
 const oidcEnabled = ref(false)
 const oidcProviderName = ref('')
+// 钉钉扫码登录：与 OIDC 并列的第二个第三方入口，独立开关与展示名。
+const dingTalkLoading = ref(false)
+const dingTalkEnabled = ref(false)
+const dingTalkProviderName = ref('')
 // Wait for configuration before showing a registration entry.
 const registrationMode = ref('')
 const registrationEnabled = computed(() => canRegister(registrationMode.value, !!inviteLookup.value))
@@ -447,6 +463,12 @@ const oidcLoginText = computed(() => {
     return t('auth.oidcLoginWithProvider', { provider: oidcProviderName.value })
   }
   return t('auth.oidcLogin')
+})
+const dingTalkLoginText = computed(() => {
+  if (dingTalkProviderName.value) {
+    return t('auth.dingtalkLoginWithProvider', { provider: dingTalkProviderName.value })
+  }
+  return t('auth.dingtalkLogin')
 })
 const currentLangOption = computed(() => languageOptions.find(l => l.value === currentLanguage.value))
 
@@ -630,8 +652,7 @@ const loadAuthConfig = async () => {
   }
 }
 
-const handleOIDCLogin = async () => {
-  try {
+const handleOIDCLogin = async () => {  try {
     oidcLoading.value = true
     const response = await getOIDCAuthorizationURL(getBackendOIDCRedirectURI())
     const authorizationURL = response.authorization_url
@@ -651,6 +672,45 @@ const handleOIDCLogin = async () => {
     MessagePlugin.error(error.message || t('auth.oidcLoginFailed'))
   } finally {
     oidcLoading.value = false
+  }
+}
+
+// 钉钉回调与 OIDC 回调共用 #oidc_result 编码，因此只需复用现有回调解析；
+// 这里只负责探测入口开关与发起跳转。
+const getBackendDingTalkRedirectURI = () => `${window.location.origin}${getApiBaseUrl()}/api/v1/auth/dingtalk/callback`
+
+const loadDingTalkConfig = async () => {
+  try {
+    const response = await getDingTalkConfig()
+    dingTalkEnabled.value = !!response.success && !!response.enabled
+    dingTalkProviderName.value = response.provider_display_name || ''
+  } catch {
+    dingTalkEnabled.value = false
+    dingTalkProviderName.value = ''
+  }
+}
+
+const handleDingTalkLogin = async () => {
+  try {
+    dingTalkLoading.value = true
+    const response = await getDingTalkAuthorizationURL(getBackendDingTalkRedirectURI())
+    const authorizationURL = response.authorization_url
+
+    if (!response.success || !authorizationURL) {
+      MessagePlugin.error(response.message || t('auth.dingtalkLoginFailed'))
+      return
+    }
+
+    // 跳转钉钉会丢失 URL 中的 token，暂存到 sessionStorage，回调后由 App.vue 兑换。
+    if (inviteToken.value) {
+      sessionStorage.setItem('weknora_pending_invite_token', inviteToken.value)
+    }
+    window.location.href = authorizationURL
+  } catch (error: any) {
+    console.error('钉钉登录跳转失败:', error)
+    MessagePlugin.error(error.message || t('auth.dingtalkLoginFailed'))
+  } finally {
+    dingTalkLoading.value = false
   }
 }
 
@@ -787,12 +847,14 @@ onMounted(async () => {
       } else {
         inviteLookupError.value = resp.message || t('inviteRegister.invalidBody')
         loadOIDCConfig()
+        loadDingTalkConfig()
         loadAuthConfig()
         return
       }
     } catch {
       inviteLookupError.value = t('inviteRegister.invalidBody')
       loadOIDCConfig()
+      loadDingTalkConfig()
       loadAuthConfig()
       return
     } finally {
@@ -809,6 +871,7 @@ onMounted(async () => {
     await loadAuthConfig()
     isRegisterMode.value = registrationEnabled.value
     loadOIDCConfig()
+    loadDingTalkConfig()
     return
   }
 
@@ -830,6 +893,7 @@ onMounted(async () => {
   }
 
   loadOIDCConfig()
+  loadDingTalkConfig()
   loadAuthConfig()
 })
 </script>

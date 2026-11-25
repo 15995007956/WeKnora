@@ -246,6 +246,13 @@ func RegisterAuthRoutes(r *gin.RouterGroup, handler *handler.AuthHandler, g *rba
 	r.GET("/auth/oidc/callback", handler.OIDCRedirectCallback)
 	// /auth/oidc/start：直连 302 跳转到 OIDC 提供方，供前端无法走 JS 拉取 URL 的场景直接发起登录
 	r.GET("/auth/oidc/start", handler.OIDCStart)
+	// 钉钉扫码登录。钉钉不是标准 OIDC（无 discovery / JWKS），因此独立成
+	// 一组路由与配置；回调同样把结果编码进 #oidc_result 片段，前端可复用
+	// 现有回调解析逻辑。回调接口限流，防止授权码被反复试探。
+	r.GET("/auth/dingtalk/config", handler.GetDingTalkConfig)
+	r.GET("/auth/dingtalk/url", handler.GetDingTalkAuthorizationURL)
+	r.GET("/auth/dingtalk/start", handler.DingTalkStart)
+	r.GET("/auth/dingtalk/callback", publicAuthRL, handler.DingTalkRedirectCallback)
 	r.POST("/auth/refresh", handler.RefreshToken)
 	r.GET("/auth/validate", handler.ValidateToken)
 	r.POST("/auth/logout", handler.Logout)

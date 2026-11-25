@@ -25,6 +25,7 @@ type Config struct {
 	Auth            *AuthConfig            `yaml:"auth"             json:"auth"`
 	Audit           *AuditConfig           `yaml:"audit"            json:"audit"`
 	OIDCAuth        *OIDCAuthConfig        `yaml:"oidc_auth"        json:"oidc_auth"`
+	DingTalkAuth    *DingTalkAuthConfig    `yaml:"dingtalk_auth"    json:"dingtalk_auth"`
 	Models          []ModelConfig          `yaml:"models"           json:"models"`
 	VectorDatabase  *VectorDatabaseConfig  `yaml:"vector_database"  json:"vector_database"`
 	DocReader       *DocReaderConfig       `yaml:"docreader"        json:"docreader"`
@@ -397,6 +398,91 @@ type OIDCAuthConfig struct {
 	UserInfoMapping       *OIDCUserInfoMapping `yaml:"user_info_mapping"      json:"user_info_mapping"`
 }
 
+// DingTalkProvisioningMode values control what a first-time DingTalk login
+// does when no local account is bound to the scanned unionId yet.
+const (
+	// DingTalkProvisioningCreatePersonal auto-creates a local account with a
+	// personal workspace, like public password registration.
+	DingTalkProvisioningCreatePersonal = "create_personal"
+	// DingTalkProvisioningTenantless auto-creates only the identity, which
+	// then waits for an invitation (the safe default for internal deployments
+	// where workspace quotas are managed by hand).
+	DingTalkProvisioningTenantless = "tenantless"
+	// DingTalkProvisioningDeny rejects unknown unionIds; an administrator must
+	// bind the identity first. This makes DingTalk a strict allow-list.
+	DingTalkProvisioningDeny = "deny"
+)
+
+// DingTalkAuthConfig configures DingTalk (钉钉) QR-code login.
+//
+// DingTalk is NOT an OIDC provider: it exposes a private OAuth2 authorization
+// endpoint plus a REST contact API, with no discovery document and no JWKS
+// id_token. It therefore gets its own config section instead of reusing
+// OIDCAuthConfig, whose validation requires a discovery URL or JWKS.
+type DingTalkAuthConfig struct {
+	// Enable is the master switch; the login button and all /auth/dingtalk/*
+	// routes refuse to work while it is false.
+	Enable bool `yaml:"enable" json:"enable"`
+	// AppKey / AppSecret are the credentials of a DingTalk "企业内部应用
+	// (H5 micro application)". The secret is never serialised to clients.
+	AppKey    string `yaml:"app_key"    json:"app_key"`
+	AppSecret string `yaml:"app_secret" json:"-"`
+	// CorpID optionally pins the login to one DingTalk organization. Empty
+	// accepts any organization that can authorize the application.
+	CorpID string `yaml:"corp_id" json:"corp_id"`
+	// ProviderDisplayName is the text on the login button. Defaults to 钉钉.
+	ProviderDisplayName string `yaml:"provider_display_name" json:"provider_display_name"`
+	// Endpoint overrides exist for private deployments and for tests; the
+	// DingTalk public defaults are applied when the fields are empty.
+	AuthorizeEndpoint string `yaml:"authorize_endpoint" json:"authorize_endpoint"`
+	TokenEndpoint     string `yaml:"token_endpoint"     json:"token_endpoint"`
+	UserInfoEndpoint  string `yaml:"user_info_endpoint" json:"user_info_endpoint"`
+	// ProvisioningMode decides what a first-time login does; see the
+	// DingTalkProvisioning* constants. Defaults to create_personal.
+	ProvisioningMode string `yaml:"provisioning_mode" json:"provisioning_mode"`
+	// BindByEmail allows an unbound DingTalk unionId to take over an existing
+	// local account whose email matches the one DingTalk returns. Off by
+	// default because DingTalk only returns an email when the user has one and
+	// the application is permitted to read it, so matching is best-effort and
+	// must be opted into deliberately.
+	BindByEmail bool `yaml:"bind_by_email" json:"bind_by_email"`
+	// BindByNickname lets an unbound DingTalk login claim a pre-created local
+	// account whose username exactly equals the DingTalk nickname. This is the
+	// allow-list mode: an administrator must create the account first, and only
+	// then can that person log in. The nickname is used only for the first
+	// login; the binding is then keyed on the immutable unionId.
+	BindByNickname bool `yaml:"bind_by_nickname" json:"bind_by_nickname"`
+	// BootstrapFirstUser allows the very first DingTalk login on a completely
+	// empty deployment to create the account and promote it to system
+	// administrator, even under provisioning_mode=deny.
+	//
+	// Why this is needed: deny mode refuses to create accounts, but the
+	// administrator who would pre-create them cannot log in without an
+	// account — a deadlock on a fresh install. The escape hatch is deliberately
+	// narrow: it opens only while the users table has zero rows, so it cannot
+	// be used once anybody exists, and it is off unless an operator opts in.
+	//
+	// Operational warning: whoever scans first becomes the administrator. Run
+	// the first scan immediately after deploying.
+	BootstrapFirstUser bool `yaml:"bootstrap_first_user" json:"bootstrap_first_user"`
+}
+
+// DingTalk public API endpoints used when the config does not override them.
+const (
+	DefaultDingTalkAuthorizeEndpoint = "https://login.dingtalk.com/oauth2/auth"
+	DefaultDingTalkTokenEndpoint     = "https://api.dingtalk.com/v1.0/oauth2/userAccessToken"
+	DefaultDingTalkUserInfoEndpoint  = "https://api.dingtalk.com/v1.0/contact/users/me"
+	DefaultDingTalkDisplayName       = "钉钉"
+)
+
+// Enabled reports whether DingTalk login is usable: the switch must be on and
+// both credentials must be present, otherwise the routes stay inert instead of
+// failing one request at a time.
+func (c *DingTalkAuthConfig) Enabled() bool {
+	return c != nil && c.Enable &&
+		strings.TrimSpace(c.AppKey) != "" && strings.TrimSpace(c.AppSecret) != ""
+}
+
 // PromptTemplateI18n holds localized name and description for a prompt template.
 type PromptTemplateI18n struct {
 	Name        string `yaml:"name"        json:"name"`
@@ -659,6 +745,7 @@ func LoadConfig() (*Config, error) {
 
 	// Validate configuration values
 	applyOIDCEnvOverrides(&cfg)
+	applyDingTalkEnvOverrides(&cfg)
 	applyAgentEnvOverrides(&cfg)
 	applyKnowledgeBaseEnvOverrides(&cfg)
 	applyNetworkEnvOverrides()
@@ -705,6 +792,24 @@ func ValidateConfig(cfg *Config) error {
 		if strings.TrimSpace(cfg.OIDCAuth.DiscoveryURL) == "" &&
 			(strings.TrimSpace(cfg.OIDCAuth.AuthorizationEndpoint) == "" || strings.TrimSpace(cfg.OIDCAuth.TokenEndpoint) == "") {
 			errs = append(errs, "oidc_auth.discovery_url or both oidc_auth.authorization_endpoint and oidc_auth.token_endpoint are required when OIDC is enabled")
+		}
+	}
+
+	if cfg.DingTalkAuth != nil && cfg.DingTalkAuth.Enable {
+		if strings.TrimSpace(cfg.DingTalkAuth.AppKey) == "" {
+			errs = append(errs, "dingtalk_auth.app_key is required when DingTalk login is enabled")
+		}
+		if strings.TrimSpace(cfg.DingTalkAuth.AppSecret) == "" {
+			errs = append(errs, "dingtalk_auth.app_secret is required when DingTalk login is enabled")
+		}
+		switch mode := strings.TrimSpace(cfg.DingTalkAuth.ProvisioningMode); mode {
+		case "", DingTalkProvisioningCreatePersonal, DingTalkProvisioningTenantless, DingTalkProvisioningDeny:
+		default:
+			errs = append(errs, fmt.Sprintf(
+				"dingtalk_auth.provisioning_mode must be %q, %q or %q, got %q",
+				DingTalkProvisioningCreatePersonal, DingTalkProvisioningTenantless,
+				DingTalkProvisioningDeny, mode,
+			))
 		}
 	}
 
@@ -833,6 +938,71 @@ func applyOIDCEnvOverrides(cfg *Config) {
 	}
 	if cfg.OIDCAuth.DiscoveryURL == "" && cfg.OIDCAuth.IssuerURL != "" {
 		cfg.OIDCAuth.DiscoveryURL = strings.TrimRight(cfg.OIDCAuth.IssuerURL, "/") + "/.well-known/openid-configuration"
+	}
+}
+
+// applyDingTalkEnvOverrides fills in the DingTalk login defaults and applies
+// environment overrides. Every DINGTALK_* variable wins over config.yaml so an
+// operator can enable corporate SSO without editing the shipped config file.
+//
+// Env overrides are only applied for non-empty values, matching the OIDC
+// section: an empty variable must not silently blank out a YAML setting.
+func applyDingTalkEnvOverrides(cfg *Config) {
+	if cfg.DingTalkAuth == nil {
+		cfg.DingTalkAuth = &DingTalkAuthConfig{}
+	}
+
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_AUTH_ENABLE")); value != "" {
+		cfg.DingTalkAuth.Enable = strings.EqualFold(value, "true")
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_APP_KEY")); value != "" {
+		cfg.DingTalkAuth.AppKey = value
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_APP_SECRET")); value != "" {
+		cfg.DingTalkAuth.AppSecret = value
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_CORP_ID")); value != "" {
+		cfg.DingTalkAuth.CorpID = value
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_PROVIDER_DISPLAY_NAME")); value != "" {
+		cfg.DingTalkAuth.ProviderDisplayName = value
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_AUTHORIZE_ENDPOINT")); value != "" {
+		cfg.DingTalkAuth.AuthorizeEndpoint = value
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_TOKEN_ENDPOINT")); value != "" {
+		cfg.DingTalkAuth.TokenEndpoint = value
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_USERINFO_ENDPOINT")); value != "" {
+		cfg.DingTalkAuth.UserInfoEndpoint = value
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_PROVISIONING_MODE")); value != "" {
+		cfg.DingTalkAuth.ProvisioningMode = value
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_BIND_BY_EMAIL")); value != "" {
+		cfg.DingTalkAuth.BindByEmail = strings.EqualFold(value, "true")
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_BIND_BY_NICKNAME")); value != "" {
+		cfg.DingTalkAuth.BindByNickname = strings.EqualFold(value, "true")
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_BOOTSTRAP_FIRST_USER")); value != "" {
+		cfg.DingTalkAuth.BootstrapFirstUser = strings.EqualFold(value, "true")
+	}
+
+	if strings.TrimSpace(cfg.DingTalkAuth.ProviderDisplayName) == "" {
+		cfg.DingTalkAuth.ProviderDisplayName = DefaultDingTalkDisplayName
+	}
+	if strings.TrimSpace(cfg.DingTalkAuth.AuthorizeEndpoint) == "" {
+		cfg.DingTalkAuth.AuthorizeEndpoint = DefaultDingTalkAuthorizeEndpoint
+	}
+	if strings.TrimSpace(cfg.DingTalkAuth.TokenEndpoint) == "" {
+		cfg.DingTalkAuth.TokenEndpoint = DefaultDingTalkTokenEndpoint
+	}
+	if strings.TrimSpace(cfg.DingTalkAuth.UserInfoEndpoint) == "" {
+		cfg.DingTalkAuth.UserInfoEndpoint = DefaultDingTalkUserInfoEndpoint
+	}
+	if strings.TrimSpace(cfg.DingTalkAuth.ProvisioningMode) == "" {
+		cfg.DingTalkAuth.ProvisioningMode = DingTalkProvisioningCreatePersonal
 	}
 }
 

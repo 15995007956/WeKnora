@@ -1061,3 +1061,167 @@ func (h *AuthHandler) ValidateToken(c *gin.Context) {
 		"user":    user.ToUserInfo(),
 	})
 }
+
+// dingTalkEnabled reports whether the DingTalk login entry should be offered.
+// It is derived from the same config the service reads, so the UI gate and the
+// actual login gate cannot disagree.
+func (h *AuthHandler) dingTalkEnabled() bool {
+	return h.configInfo != nil && h.configInfo.DingTalkAuth.Enabled()
+}
+
+// dingTalkCallbackURL derives the absolute /auth/dingtalk/callback URL from the
+// request origin, mirroring oidcCallbackURL so external portals can deep-link
+// to /auth/dingtalk/start without supplying a redirect_uri.
+func dingTalkCallbackURL(c *gin.Context, cfg *config.Config) string {
+	if base := frontendBaseURLFor(cfg); base != "" {
+		return base + "/api/v1/auth/dingtalk/callback"
+	}
+	scheme := "http"
+	if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	return scheme + "://" + c.Request.Host + "/api/v1/auth/dingtalk/callback"
+}
+
+// GetDingTalkConfig godoc
+// @Summary      获取钉钉登录配置
+// @Description  返回钉钉扫码登录是否启用以及登录按钮展示名称，供前端决定是否展示钉钉登录入口
+// @Tags         认证
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  types.DingTalkConfigResponse
+// @Router       /auth/dingtalk/config [get]
+func (h *AuthHandler) GetDingTalkConfig(c *gin.Context) {
+	displayName := ""
+	if h.configInfo != nil && h.configInfo.DingTalkAuth != nil {
+		displayName = strings.TrimSpace(h.configInfo.DingTalkAuth.ProviderDisplayName)
+	}
+	c.JSON(http.StatusOK, &types.DingTalkConfigResponse{
+		Success:             true,
+		Enabled:             h.dingTalkEnabled(),
+		ProviderDisplayName: displayName,
+	})
+}
+
+// GetDingTalkAuthorizationURL godoc
+// @Summary      获取钉钉授权地址
+// @Description  根据后端钉钉配置生成扫码登录跳转地址，并把 state nonce 绑定到当前浏览器的 HttpOnly cookie
+// @Tags         认证
+// @Accept       json
+// @Produce      json
+// @Param        redirect_uri  query     string  true  "钉钉回调地址"
+// @Success      200           {object}  types.OIDCAuthURLResponse
+// @Failure      400           {object}  errors.AppError  "请求参数错误"
+// @Failure      403           {object}  errors.AppError  "钉钉登录未启用"
+// @Router       /auth/dingtalk/url [get]
+func (h *AuthHandler) GetDingTalkAuthorizationURL(c *gin.Context) {
+	ctx := c.Request.Context()
+	redirectURI := strings.TrimSpace(c.Query("redirect_uri"))
+	if redirectURI == "" {
+		_ = c.Error(errors.NewValidationError("redirect_uri is required"))
+		return
+	}
+
+	resp, err := h.userService.GetDingTalkAuthorizationURL(ctx, redirectURI)
+	if err != nil {
+		logger.Errorf(ctx, "Failed to generate DingTalk authorization URL: %v", err)
+		appErr := errors.NewForbiddenError("DingTalk authorization unavailable").WithDetails(err.Error())
+		c.Error(appErr)
+		return
+	}
+
+	// Reuse the OIDC nonce cookie: identical security property (bind the
+	// signed state to this browser), and the two flows never run at once.
+	setOIDCNonceCookie(c, resp.Nonce)
+
+	c.JSON(http.StatusOK, resp)
+}
+
+// DingTalkStart godoc
+// @Summary      发起钉钉登录（直接 302）
+// @Description  直接 302 重定向到钉钉授权页，无需前端 JS 介入。适合企业门户或 IM 工作台直接给出链接。
+// @Tags         认证
+// @Success      302
+// @Router       /auth/dingtalk/start [get]
+func (h *AuthHandler) DingTalkStart(c *gin.Context) {
+	ctx := c.Request.Context()
+	resp, err := h.userService.GetDingTalkAuthorizationURL(ctx, dingTalkCallbackURL(c, h.configInfo))
+	if err != nil {
+		logger.Errorf(ctx, "Failed to start DingTalk login: %v", err)
+		appErr := errors.NewForbiddenError("DingTalk authorization unavailable").WithDetails(err.Error())
+		c.Error(appErr)
+		return
+	}
+	setOIDCNonceCookie(c, resp.Nonce)
+	c.Redirect(http.StatusFound, resp.AuthorizationURL)
+}
+
+// DingTalkRedirectCallback godoc
+// @Summary      钉钉登录重定向回调
+// @Description  接收钉钉回调，由后端完成 code 交换并重定向回前端登录页，成功时携带 #oidc_result=<base64url>
+// @Tags         认证
+// @Param        code   query string false "钉钉授权码"
+// @Param        state  query string false "钉钉状态"
+// @Param        error  query string false "钉钉错误码"
+// @Success      302
+// @Router       /auth/dingtalk/callback [get]
+func (h *AuthHandler) DingTalkRedirectCallback(c *gin.Context) {
+	ctx := c.Request.Context()
+	frontendRedirectURI := frontendBaseURLFor(h.configInfo) + "/"
+
+	if providerError := strings.TrimSpace(c.Query("error")); providerError != "" {
+		redirectURL := frontendRedirectURI + "#oidc_error=" + urlQueryEscape(providerError)
+		if description := strings.TrimSpace(c.Query("error_description")); description != "" {
+			redirectURL += "&oidc_error_description=" + urlQueryEscape(description)
+		}
+		c.Redirect(http.StatusFound, redirectURL)
+		return
+	}
+
+	decodedState, err := decodeOIDCState(strings.TrimSpace(c.Query("state")), c.Request)
+	if err != nil {
+		logger.Errorf(ctx, "Failed to decode DingTalk state: %v", err)
+		c.Redirect(http.StatusFound, frontendRedirectURI+"#oidc_error="+urlQueryEscape("invalid_state"))
+		return
+	}
+	// One-time use: clear the binding cookie as soon as it is checked.
+	c.SetCookie(oidcNonceCookieName, "", -1, "/", "", false, true)
+	c.SetCookie(oidcPKCECookieName, "", -1, "/", "", false, true)
+
+	code := strings.TrimSpace(c.Query("code"))
+	if code == "" {
+		c.Redirect(http.StatusFound, frontendRedirectURI+"#oidc_error="+urlQueryEscape("missing_code"))
+		return
+	}
+
+	resp, err := h.userService.LoginWithDingTalk(ctx, code, strings.TrimSpace(decodedState.RedirectURI))
+	if err != nil {
+		logger.Errorf(ctx, "Failed to complete DingTalk login: %v", err)
+		// A deliberately unlinked identity is an authorization decision, not a
+		// malfunction: surface a stable code so the SPA can show actionable
+		// guidance instead of a generic failure.
+		failure := "login_failed"
+		switch {
+		case stderrors.Is(err, service.ErrDingTalkUnknownIdentity):
+			failure = "not_linked"
+		case stderrors.Is(err, service.ErrDingTalkAccountAlreadyClaimed):
+			failure = "account_already_claimed"
+		}
+		c.Redirect(http.StatusFound, frontendRedirectURI+"#oidc_error="+urlQueryEscape(failure)+
+			"&oidc_error_description="+urlQueryEscape(err.Error()))
+		return
+	}
+	if !resp.Success {
+		c.Redirect(http.StatusFound, frontendRedirectURI+"#oidc_error="+urlQueryEscape("login_failed")+
+			"&oidc_error_description="+urlQueryEscape(resp.Message))
+		return
+	}
+
+	payload, err := encodeOIDCCallbackPayload(resp)
+	if err != nil {
+		logger.Errorf(ctx, "Failed to encode DingTalk callback payload: %v", err)
+		c.Redirect(http.StatusFound, frontendRedirectURI+"#oidc_error="+urlQueryEscape("payload_encode_failed"))
+		return
+	}
+	c.Redirect(http.StatusFound, frontendRedirectURI+"#oidc_result="+urlQueryEscape(payload))
+}

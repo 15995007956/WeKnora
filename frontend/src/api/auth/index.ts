@@ -68,6 +68,15 @@ export interface OIDCConfigResponse {
   message?: string
 }
 
+// 钉钉登录入口配置。字段与 OIDCConfigResponse 同形，独立命名以便
+// 后续按 provider 扩展（如企业微信、飞书）。
+export interface DingTalkConfigResponse {
+  success: boolean
+  enabled: boolean
+  provider_display_name?: string
+  message?: string
+}
+
 // 用户注册接口
 export interface RegisterRequest {
   username: string
@@ -258,8 +267,41 @@ export async function getOIDCConfig(): Promise<OIDCConfigResponse> {
 }
 
 /**
- * 获取认证配置（仅返回前端渲染需要的公开字段，例如注册模式）。
+ * 获取钉钉登录跳转地址。
  *
+ * 钉钉不是标准 OIDC（没有 discovery / JWKS），因此后端单独提供
+ * /auth/dingtalk/* 路由；返回结构与 OIDC 一致，前端可复用同一套跳转逻辑。
+ */
+export async function getDingTalkAuthorizationURL(redirectURI: string): Promise<OIDCAuthURLResponse> {
+  try {
+    const response = await get(`/api/v1/auth/dingtalk/url?redirect_uri=${encodeURIComponent(redirectURI)}`)
+    return response as unknown as OIDCAuthURLResponse
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error.message || t('error.auth.loginFailed')
+    }
+  }
+}
+
+/**
+ * 获取钉钉登录配置，决定是否展示钉钉登录入口。
+ */
+export async function getDingTalkConfig(): Promise<DingTalkConfigResponse> {
+  try {
+    const response = await get('/api/v1/auth/dingtalk/config')
+    return response as unknown as DingTalkConfigResponse
+  } catch (error: any) {
+    return {
+      success: false,
+      enabled: false,
+      message: error.message || t('error.auth.loginFailed')
+    }
+  }
+}
+
+/**
+ * 获取认证配置（仅返回前端渲染需要的公开字段，例如注册模式）。 *
  * 后端通过 `auth.registration_mode` 控制是否允许自助注册：
  *   - "self_serve"  保留现有自助注册入口（默认）
  *   - "invite_register" 仅持有效邀请链接可注册

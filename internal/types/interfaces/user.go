@@ -21,6 +21,11 @@ type UserService interface {
 		ctx context.Context, code, redirectURI string,
 		provisioning types.TenantProvisioningMode, codeVerifier string,
 	) (*types.OIDCCallbackResponse, error)
+	// GetDingTalkAuthorizationURL builds the DingTalk QR-code login URL.
+	GetDingTalkAuthorizationURL(ctx context.Context, redirectURI string) (*types.OIDCAuthURLResponse, error)
+	// LoginWithDingTalk exchanges the DingTalk callback code, binds or
+	// provisions the local account, and returns local login tokens.
+	LoginWithDingTalk(ctx context.Context, code, redirectURI string) (*types.OIDCCallbackResponse, error)
 	// GetUserByID gets a user by ID
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
 	// GetUsersByIDs batch-fetches users by id, returning a map keyed by

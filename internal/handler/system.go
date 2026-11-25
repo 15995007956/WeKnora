@@ -1775,7 +1775,9 @@ func (h *SystemHandler) CreateSystemUser(c *gin.Context) {
 	req.Username = secutils.SanitizeForLog(strings.TrimSpace(req.Username))
 	req.Email = secutils.SanitizeForLog(strings.TrimSpace(req.Email))
 	// Password is intentionally NOT trimmed or sanitized.
-	if req.Username == "" || req.Email == "" {
+	// Email is only mandatory for ordinary password accounts; pre-created
+	// DingTalk accounts (join_tenant_id set) are identified by nickname.
+	if req.Username == "" || (req.Email == "" && req.JoinTenantID == 0) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Username and email are required"})
 		return
 	}

@@ -3346,6 +3346,15 @@ definitions:
           model.
         type: string
     type: object
+  github_com_Tencent_WeKnora_internal_types.DingTalkConfigResponse:
+    properties:
+      enabled:
+        type: boolean
+      provider_display_name:
+        type: string
+      success:
+        type: boolean
+    type: object
   github_com_Tencent_WeKnora_internal_types.DockerSandboxConfig:
     properties:
       cpu_limit:
@@ -9529,13 +9538,12 @@ definitions:
       gallery:
         allOf:
         - $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.GalleryUserPrefs'
-        description: |-
-          Gallery holds the user's image-gallery UI state: the search
-          activation mode and the per-attribute search-field toggles. Written
-          by the gallery's mode / checkbox interactions via the preferences
-          PUT; read back by GET /knowledge-bases/:id/gallery-config so the
-          gallery renders the same activation state on every device. Nil = the
-          user never touched the gallery controls (mode defaults to "all").
+        description: "Gallery holds the user's image-gallery UI state: the search\nactivation
+          mode and the per-attribute search-field toggles. Written\t// by the gallery's
+          mode / checkbox interactions via the preferences\nPUT; read back by GET
+          /knowledge-bases/:id/gallery-config so the\ngallery renders the same activation
+          state on every device. Nil = the\nuser never touched the gallery controls
+          (mode defaults to \"all\")."
       last_active_tenant_id:
         description: |-
           LastActiveTenantID remembers the last workspace the user actively
@@ -9562,6 +9570,14 @@ definitions:
           via OIDC with a random password the user never received. The profile
           UI hides self-service password rotation until the user sets a known
           password via ChangePassword (which clears this flag).
+        type: boolean
+      sso_only_login:
+        description: |-
+          SsoOnlyLogin is the DingTalk equivalent of OidcOnlyLogin: set when an
+          account was auto-provisioned by an external identity provider with a
+          generated password, so the profile UI hides password rotation until the
+          user sets one they know. Kept separate from OidcOnlyLogin so the UI can
+          explain which provider the account came from.
         type: boolean
     type: object
   github_com_Tencent_WeKnora_internal_types.UserResourceFavorite:
@@ -16022,6 +16038,81 @@ paths:
           schema:
             $ref: '#/definitions/internal_handler.GetAuthConfigResponse'
       summary: 获取认证配置
+      tags:
+      - 认证
+  /auth/dingtalk/callback:
+    get:
+      description: '接收钉钉回调，由后端完成 code 交换并重定向回前端登录页，成功时携带 #oidc_result=<base64url>'
+      parameters:
+      - description: 钉钉授权码
+        in: query
+        name: code
+        type: string
+      - description: 钉钉状态
+        in: query
+        name: state
+        type: string
+      - description: 钉钉错误码
+        in: query
+        name: error
+        type: string
+      responses:
+        "302":
+          description: Found
+      summary: 钉钉登录重定向回调
+      tags:
+      - 认证
+  /auth/dingtalk/config:
+    get:
+      consumes:
+      - application/json
+      description: 返回钉钉扫码登录是否启用以及登录按钮展示名称，供前端决定是否展示钉钉登录入口
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.DingTalkConfigResponse'
+      summary: 获取钉钉登录配置
+      tags:
+      - 认证
+  /auth/dingtalk/start:
+    get:
+      description: 直接 302 重定向到钉钉授权页，无需前端 JS 介入。适合企业门户或 IM 工作台直接给出链接。
+      responses:
+        "302":
+          description: Found
+      summary: 发起钉钉登录（直接 302）
+      tags:
+      - 认证
+  /auth/dingtalk/url:
+    get:
+      consumes:
+      - application/json
+      description: 根据后端钉钉配置生成扫码登录跳转地址，并把 state nonce 绑定到当前浏览器的 HttpOnly cookie
+      parameters:
+      - description: 钉钉回调地址
+        in: query
+        name: redirect_uri
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.OIDCAuthURLResponse'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: 钉钉登录未启用
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      summary: 获取钉钉授权地址
       tags:
       - 认证
   /auth/invitations/lookup:

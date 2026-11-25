@@ -112,6 +112,18 @@ type userService struct {
 	config           *config.Config
 	systemSettingSvc interfaces.SystemSettingService
 	sandboxReleaser  SandboxOwnerReleaser
+	// identityRepo stores external login bindings (DingTalk unionId, …).
+	// It is injected through SetIdentityRepository rather than the
+	// constructor so existing call sites and test fixtures that build a
+	// user service without SSO wiring keep compiling; when it is nil the
+	// DingTalk flow reports itself as unavailable instead of panicking.
+	identityRepo interfaces.UserIdentityRepository
+}
+
+// SetIdentityRepository wires the external-identity repository into the user
+// service. It must be called before requests are served.
+func (s *userService) SetIdentityRepository(repo interfaces.UserIdentityRepository) {
+	s.identityRepo = repo
 }
 
 // NewUserService creates a new user service instance
@@ -130,6 +142,21 @@ func NewUserService(
 		memberService:    memberService,
 		config:           configInfo,
 		systemSettingSvc: systemSettingSvc,
+	}
+}
+
+// WithIdentityRepository returns the user service with its external-identity
+// repository attached. The container uses this as an fx decorator so the
+// binding is in place before any handler can run, while NewUserService keeps
+// its historical six-argument shape.
+func WithIdentityRepository(repo interfaces.UserIdentityRepository) func(interfaces.UserService) interfaces.UserService {
+	return func(svc interfaces.UserService) interfaces.UserService {
+		if setter, ok := svc.(interface {
+			SetIdentityRepository(interfaces.UserIdentityRepository)
+		}); ok {
+			setter.SetIdentityRepository(repo)
+		}
+		return svc
 	}
 }
 
@@ -907,8 +934,15 @@ func (s *userService) AdminCreateUser(
 	req *types.AdminCreateUserRequest,
 	provisioning types.TenantProvisioningMode,
 ) (*types.User, string, error) {
-	if req == nil || strings.TrimSpace(req.Username) == "" || strings.TrimSpace(req.Email) == "" {
-		return nil, "", errors.New("username and email are required")
+	if req == nil || strings.TrimSpace(req.Username) == "" {
+		return nil, "", errors.New("username is required")
+	}
+	// Email stays mandatory for ordinary password accounts. Pre-created
+	// DingTalk accounts (JoinTenantID set) only need a unique placeholder,
+	// because a DingTalk nickname is not an email address.
+	email := strings.TrimSpace(req.Email)
+	if req.JoinTenantID == 0 && email == "" {
+		return nil, "", errors.New("email is required")
 	}
 
 	password := ""
@@ -932,9 +966,20 @@ func (s *userService) AdminCreateUser(
 		return nil, "", err
 	}
 
+	// Pre-created allow-list accounts never get a personal workspace: they
+	// are created tenantless and then added to the administrator's workspace,
+	// so a large roster cannot create one workspace per employee.
+	createdEmail := email
+	if req.JoinTenantID != 0 {
+		provisioning = types.TenantProvisioningTenantless
+		if createdEmail == "" {
+			createdEmail = adminPlaceholderEmail(req.Username)
+		}
+	}
+
 	user, err := s.Register(ctx, &types.RegisterRequest{
 		Username:           strings.TrimSpace(req.Username),
-		Email:              strings.TrimSpace(req.Email),
+		Email:              createdEmail,
 		Password:           password,
 		TenantProvisioning: provisioning,
 	})
@@ -951,7 +996,7 @@ func (s *userService) AdminCreateUser(
 			return s.adminCreateUserOnDuplicate(
 				ctx, req, err,
 				func(ctx context.Context) (*types.User, error) {
-					return s.userRepo.GetUserByEmail(ctx, strings.TrimSpace(req.Email))
+					return s.userRepo.GetUserByEmail(ctx, createdEmail)
 				},
 			)
 		case errors.Is(err, ErrUserUsernameExists):
@@ -964,10 +1009,88 @@ func (s *userService) AdminCreateUser(
 		}
 		return nil, "", err
 	}
+
+	if req.JoinTenantID != 0 {
+		if err := s.attachNewUserToTenant(ctx, user, req.JoinTenantID, req.JoinRole); err != nil {
+			// Roll back the half-created identity so a retry is clean.
+			if delErr := s.userRepo.DeleteUser(ctx, user.ID); delErr != nil {
+				logger.Errorf(ctx, "Failed to roll back user %s after membership failure: %v",
+					user.ID, delErr)
+			}
+			return nil, "", err
+		}
+	}
+
 	if generated {
 		return user, password, nil
 	}
 	return user, "", nil
+}
+
+// attachNewUserToTenant makes a freshly created account an active member of an
+// existing workspace and points its home tenant there. This replaces the
+// personal-workspace provisioning that Register would otherwise have done.
+func (s *userService) attachNewUserToTenant(
+	ctx context.Context, user *types.User, tenantID uint64, roleName string,
+) error {
+	if s.memberService == nil || s.tenantService == nil {
+		return errors.New("workspace membership is not wired")
+	}
+	// Fail before touching membership if the workspace does not exist.
+	if _, err := s.tenantService.GetTenantByID(ctx, tenantID); err != nil {
+		return fmt.Errorf("workspace %d not found: %w", tenantID, err)
+	}
+
+	// Least privilege by default: a pre-created employee can read and ask
+	// questions but cannot create knowledge bases or upload documents until
+	// an administrator grants a higher role.
+	role := types.TenantRoleViewer
+	if trimmed := strings.TrimSpace(roleName); trimmed != "" {
+		parsed := types.TenantRole(trimmed)
+		if !isAssignableTenantRole(parsed) {
+			return fmt.Errorf("invalid workspace role %q", trimmed)
+		}
+		role = parsed
+	}
+
+	if _, err := s.memberService.AddMember(ctx, user.ID, tenantID, role, nil); err != nil {
+		return fmt.Errorf("failed to add user to workspace %d: %w", tenantID, err)
+	}
+
+	// Home tenant drives the JWT's initial tenant_id, so point it at the
+	// workspace the user actually belongs to rather than leaving 0.
+	user.TenantID = tenantID
+	user.UpdatedAt = time.Now()
+	if err := s.userRepo.UpdateUser(ctx, user); err != nil {
+		return fmt.Errorf("failed to set home workspace for user %s: %w", user.ID, err)
+	}
+	return nil
+}
+
+// isAssignableTenantRole reports whether a role may be granted at creation
+// time. Owner is deliberately excluded: transferring ownership is a separate,
+// audited operation, so a typo in this field cannot hand away the workspace.
+func isAssignableTenantRole(role types.TenantRole) bool {
+	switch role {
+	case types.TenantRoleViewer, types.TenantRoleContributor, types.TenantRoleAdmin:
+		return true
+	}
+	return false
+}
+
+// adminPlaceholderEmail builds a unique, non-routable address for a
+// pre-created account that has no real email. users.email is NOT NULL and
+// UNIQUE, and the ".invalid" TLD is reserved by RFC 2606 so it can never
+// collide with a real mailbox.
+func adminPlaceholderEmail(username string) string {
+	local := sanitizeUsernameCandidate(username)
+	if local == "" {
+		// CJK nicknames sanitise to nothing; fall back to a stable hash so two
+		// employees with Chinese names still get distinct addresses.
+		sum := sha256.Sum256([]byte(strings.TrimSpace(username)))
+		local = "user-" + fmt.Sprintf("%x", sum[:6])
+	}
+	return local + "@dingtalk.invalid"
 }
 
 func (s *userService) adminCreateUserOnDuplicate(
