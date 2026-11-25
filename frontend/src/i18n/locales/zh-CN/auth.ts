@@ -703,6 +703,7 @@ export default {
     dingtalkLoginWithProvider: '使用 {provider} 登录',
     redirectingToDingTalk: '正在跳转到钉钉...',
     dingtalkLoginFailed: '钉钉登录失败',
+    dingtalkOnlyHint: '本系统仅支持钉钉扫码登录，请使用钉钉扫码进入',
     username: '用户名',
     email: '邮箱',
     password: '密码',

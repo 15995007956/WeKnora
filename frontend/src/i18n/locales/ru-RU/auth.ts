@@ -703,6 +703,7 @@ export default {
     dingtalkLoginWithProvider: 'Войти через {provider}',
     redirectingToDingTalk: 'Перенаправление к DingTalk...',
     dingtalkLoginFailed: 'Ошибка входа через DingTalk',
+    dingtalkOnlyHint: 'Система поддерживает только вход через DingTalk. Отсканируйте QR-код в DingTalk.',
     username: 'Имя пользователя',
     email: 'Почта Email',
     password: 'Пароль',

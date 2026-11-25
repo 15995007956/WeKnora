@@ -262,6 +262,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	logger.Info(ctx, "Start user login")
 
+	// An SSO-only deployment hides the password form; the endpoint must refuse
+	// too, otherwise the form is only cosmetically disabled.
+	if h.configInfo != nil && !h.configInfo.DingTalkAuth.PasswordLoginAllowed() {
+		logger.Warn(ctx, "Password login rejected by password_login_enabled=false")
+		c.Error(errors.NewForbiddenError("Password login is disabled; please sign in with DingTalk"))
+		return
+	}
+
 	var req types.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		logger.Error(ctx, "Failed to parse login request parameters", err)
@@ -865,6 +873,10 @@ func (h *AuthHandler) GetAuthConfig(c *gin.Context) {
 		"success":                  true,
 		"registration_mode":        mode,
 		"complex_password_enabled": complexPasswordEnabled,
+		// Drives whether the login page renders the email/password form.
+		// Deployments fronted by DingTalk can turn it off so scanning is the
+		// only way in.
+		"password_login_enabled": h.configInfo == nil || h.configInfo.DingTalkAuth.PasswordLoginAllowed(),
 	})
 }
 

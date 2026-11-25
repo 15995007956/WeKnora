@@ -199,7 +199,17 @@
           </div>
 
           <div class="form-content">
-            <t-form ref="formRef" :data="formData" :rules="formRules" @submit="handleLogin" layout="vertical"
+            <!-- SSO-only deployment: the password form is hidden entirely and
+                 DingTalk is the single entry point. -->
+            <div v-if="!passwordLoginAllowed" class="sso-only-panel">
+              <t-button theme="primary" size="large" block :loading="dingTalkLoading"
+                class="submit-button sso-only-panel__button" @click="handleDingTalkLogin">
+                {{ dingTalkLoading ? $t('auth.redirectingToDingTalk') : dingTalkLoginText }}
+              </t-button>
+              <p class="sso-only-panel__hint">{{ $t('auth.dingtalkOnlyHint') }}</p>
+            </div>
+
+            <t-form v-else ref="formRef" :data="formData" :rules="formRules" @submit="handleLogin" layout="vertical"
               label-align="top">
               <t-form-item :label="$t('auth.email')" name="email">
                 <t-input v-model="formData.email" :placeholder="$t('auth.emailPlaceholder')" type="text"
@@ -432,6 +442,10 @@ const oidcProviderName = ref('')
 const dingTalkLoading = ref(false)
 const dingTalkEnabled = ref(false)
 const dingTalkProviderName = ref('')
+// false when the deployment is SSO-only: the password form is then hidden and
+// DingTalk is the only entry point. Defaults to true so a failed config fetch
+// never locks the user out of the form.
+const passwordLoginAllowed = ref(true)
 // Wait for configuration before showing a registration entry.
 const registrationMode = ref('')
 const registrationEnabled = computed(() => canRegister(registrationMode.value, !!inviteLookup.value))
@@ -646,9 +660,12 @@ const loadAuthConfig = async () => {
     const response = await getAuthConfig()
     registrationMode.value = response.success ? response.registration_mode : ''
     complexPasswordEnabled.value = response.complex_password_enabled
+    // Absent field means "allowed": keep the form rather than guessing.
+    passwordLoginAllowed.value = response.password_login_enabled !== false
   } catch {
     registrationMode.value = ''
     complexPasswordEnabled.value = false
+    passwordLoginAllowed.value = true
   }
 }
 
@@ -1633,6 +1650,25 @@ onMounted(async () => {
   border-radius: var(--app-radius-md);
   font-size: var(--app-text-lg);
   font-weight: 500;
+}
+
+/* SSO-only layout: one primary button plus a short explanation. */
+.sso-only-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sso-only-panel__button {
+  margin: 8px 0 4px 0;
+}
+
+.sso-only-panel__hint {
+  margin: 0;
+  text-align: center;
+  font-size: var(--app-text-sm);
+  color: var(--td-text-color-secondary);
+  font-family: var(--app-font-family);
 }
 
 .form-footer {

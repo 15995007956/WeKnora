@@ -43,6 +43,7 @@ export default {
     dingtalkLoginWithProvider: '{provider}でログイン',
     redirectingToDingTalk: 'DingTalkにリダイレクトしています...',
     dingtalkLoginFailed: 'DingTalkログインに失敗しました',
+    dingtalkOnlyHint: 'このシステムはDingTalkでのログインのみ対応しています。DingTalkでQRコードをスキャンしてください。',
     username: 'ユーザ名',
     email: 'メールアドレス',
     password: 'パスワード',

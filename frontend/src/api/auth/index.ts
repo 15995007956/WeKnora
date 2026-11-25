@@ -313,6 +313,9 @@ export interface AuthConfigResponse {
   success: boolean
   registration_mode: 'self_serve' | 'invite_register' | 'invite_only' | string
   complex_password_enabled: boolean
+  // False when the deployment is SSO-only; the login page then hides the
+  // email/password form. Absent/undefined means password login is allowed.
+  password_login_enabled?: boolean
 }
 
 export async function getAuthConfig(): Promise<AuthConfigResponse> {

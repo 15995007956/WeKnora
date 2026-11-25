@@ -126,7 +126,12 @@ func (s *userService) SetIdentityRepository(repo interfaces.UserIdentityReposito
 	s.identityRepo = repo
 }
 
-// NewUserService creates a new user service instance
+// NewUserService creates a new user service instance.
+//
+// identityRepo may be nil: SSO flows (DingTalk) then report themselves as
+// unavailable instead of panicking. The container supplies it through
+// NewUserServiceWithIdentity; the plain form stays for callers that only need
+// password/OIDC authentication.
 func NewUserService(
 	configInfo *config.Config,
 	userRepo interfaces.UserRepository,
@@ -135,28 +140,35 @@ func NewUserService(
 	memberService interfaces.TenantMemberService,
 	systemSettingSvc interfaces.SystemSettingService,
 ) interfaces.UserService {
+	return NewUserServiceWithIdentity(
+		configInfo, userRepo, nil, tokenRepo, tenantService, memberService, systemSettingSvc)
+}
+
+// NewUserServiceWithIdentity is the full constructor used by the DI container:
+// it takes the external-identity repository as an explicit dependency, so the
+// DingTalk flow is wired by construction.
+//
+// A dig.Decorate hook was tried first and silently left identityRepo nil at
+// runtime. The failure only surfaced at the OAuth callback — after the user had
+// already scanned a QR code — as "DingTalk login is not wired to an identity
+// repository", so an explicit parameter is used instead.
+func NewUserServiceWithIdentity(
+	configInfo *config.Config,
+	userRepo interfaces.UserRepository,
+	identityRepo interfaces.UserIdentityRepository,
+	tokenRepo interfaces.AuthTokenRepository,
+	tenantService interfaces.TenantService,
+	memberService interfaces.TenantMemberService,
+	systemSettingSvc interfaces.SystemSettingService,
+) interfaces.UserService {
 	return &userService{
 		userRepo:         userRepo,
+		identityRepo:     identityRepo,
 		tokenRepo:        tokenRepo,
 		tenantService:    tenantService,
 		memberService:    memberService,
 		config:           configInfo,
 		systemSettingSvc: systemSettingSvc,
-	}
-}
-
-// WithIdentityRepository returns the user service with its external-identity
-// repository attached. The container uses this as an fx decorator so the
-// binding is in place before any handler can run, while NewUserService keeps
-// its historical six-argument shape.
-func WithIdentityRepository(repo interfaces.UserIdentityRepository) func(interfaces.UserService) interfaces.UserService {
-	return func(svc interfaces.UserService) interfaces.UserService {
-		if setter, ok := svc.(interface {
-			SetIdentityRepository(interfaces.UserIdentityRepository)
-		}); ok {
-			setter.SetIdentityRepository(repo)
-		}
-		return svc
 	}
 }
 

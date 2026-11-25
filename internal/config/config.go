@@ -446,6 +446,14 @@ type DingTalkAuthConfig struct {
 	// the application is permitted to read it, so matching is best-effort and
 	// must be opted into deliberately.
 	BindByEmail bool `yaml:"bind_by_email" json:"bind_by_email"`
+	// PasswordLoginEnabled controls whether the password form is offered and
+	// accepted. When false, DingTalk (or another SSO provider) becomes the only
+	// way in, which is what an internal deployment behind a corporate identity
+	// provider usually wants. Defaults to true; only an explicit "false" turns
+	// it off, so an unset value never locks anyone out.
+	//
+	// Password *registration* stays governed by auth.registration_mode.
+	PasswordLoginEnabled *bool `yaml:"password_login_enabled" json:"password_login_enabled"`
 	// BindByNickname lets an unbound DingTalk login claim a pre-created local
 	// account whose username exactly equals the DingTalk nickname. This is the
 	// allow-list mode: an administrator must create the account first, and only
@@ -481,6 +489,12 @@ const (
 func (c *DingTalkAuthConfig) Enabled() bool {
 	return c != nil && c.Enable &&
 		strings.TrimSpace(c.AppKey) != "" && strings.TrimSpace(c.AppSecret) != ""
+}
+
+// PasswordLoginAllowed reports whether the email/password form should be shown
+// and accepted. Nil (unset) means allowed.
+func (c *DingTalkAuthConfig) PasswordLoginAllowed() bool {
+	return c == nil || c.PasswordLoginEnabled == nil || *c.PasswordLoginEnabled
 }
 
 // PromptTemplateI18n holds localized name and description for a prompt template.
@@ -996,6 +1010,10 @@ func applyDingTalkEnvOverrides(cfg *Config) {
 	}
 	if value := strings.TrimSpace(os.Getenv("DINGTALK_BOOTSTRAP_FIRST_USER")); value != "" {
 		cfg.DingTalkAuth.BootstrapFirstUser = strings.EqualFold(value, "true")
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_PASSWORD_LOGIN_ENABLED")); value != "" {
+		enabled := strings.EqualFold(value, "true")
+		cfg.DingTalkAuth.PasswordLoginEnabled = &enabled
 	}
 
 	if strings.TrimSpace(cfg.DingTalkAuth.ProviderDisplayName) == "" {

@@ -703,6 +703,7 @@ export default {
     dingtalkLoginWithProvider: '使用 {provider} 登入',
     redirectingToDingTalk: '正在跳轉到釘釘...',
     dingtalkLoginFailed: '釘釘登入失敗',
+    dingtalkOnlyHint: '本系統僅支援釘釘掃碼登入，請使用釘釘掃碼進入',
     username: '使用者名',
     email: '電子信箱',
     password: '密碼',

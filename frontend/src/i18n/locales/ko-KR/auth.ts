@@ -703,6 +703,7 @@ export default {
     dingtalkLoginWithProvider: '{provider}로 로그인',
     redirectingToDingTalk: 'DingTalk로 이동하는 중...',
     dingtalkLoginFailed: 'DingTalk 로그인 실패',
+    dingtalkOnlyHint: '이 시스템은 DingTalk 로그인만 지원합니다. DingTalk로 QR 코드를 스캔하세요.',
     username: '사용자명',
     email: '이메일',
     password: '비밀번호',

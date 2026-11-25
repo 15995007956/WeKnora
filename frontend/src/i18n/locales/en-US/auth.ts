@@ -43,6 +43,7 @@ export default {
     dingtalkLoginWithProvider: 'Sign in with {provider}',
     redirectingToDingTalk: 'Redirecting to DingTalk...',
     dingtalkLoginFailed: 'DingTalk login failed',
+    dingtalkOnlyHint: 'This system only supports DingTalk sign-in. Please scan the QR code with DingTalk.',
     username: 'Username',
     email: 'Email',
     password: 'Password',

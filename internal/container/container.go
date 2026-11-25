@@ -281,12 +281,10 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewModelService))
 	must(container.Provide(service.NewDatasetService))
 	must(container.Provide(service.NewEvaluationService))
-	must(container.Provide(service.NewUserService))
-	// Decorate the user service with the external-identity repository so the
-	// DingTalk login flow can resolve and bind unionIds. A decorator (rather
-	// than a seventh constructor argument) keeps NewUserService's signature
-	// stable for the existing call sites and test fixtures.
-	must(container.Decorate(service.WithIdentityRepository))
+	// The full constructor takes the external-identity repository explicitly so
+	// the DingTalk flow is wired by construction. A dig.Decorate hook was tried
+	// first and silently left the repository nil at runtime.
+	must(container.Provide(service.NewUserServiceWithIdentity))
 	must(container.Provide(service.NewSystemSettingService))
 	must(container.Provide(service.NewModelCatalogService))
 	must(container.Provide(func(
