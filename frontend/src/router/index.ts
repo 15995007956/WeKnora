@@ -14,6 +14,16 @@ import { isToolboxSection, toolboxLocation } from '@/config/toolbox'
 /** Lite /桌面 WebView 硬刷新时可能只打开 `/`，用 session 记住上次页面以便恢复 */
 const LITE_LAST_PATH_KEY = 'weknora_lite_last_path'
 
+// Route names a Viewer may not open. Mirrors viewerHiddenPaths in
+// stores/menu.ts: the sidebar hides these entries, so the routes are guarded
+// here too and fall back to the chat surface.
+const VIEWER_FORBIDDEN_ROUTE_NAMES = new Set([
+  'knowledgeBaseList',
+  'knowledgeBaseDetail',
+  'agentList',
+  'artifactLibrary',
+])
+
 // views/platform/index.vue always mounts the settings modal and opens it when
 // the path is /platform/settings, so this route only has to own the URL.
 // Rendering Settings.vue here would mount a second, independent copy.
@@ -387,6 +397,16 @@ router.beforeEach(async (to, from, next) => {
   // 探测失败时 Store 会 fail-open，真正的权限和可用性仍由后端接口校验。
   const deploymentCapabilities = useDeploymentCapabilitiesStore()
   await deploymentCapabilities.ensureLoaded()
+
+  // Viewers get a chat-only navigation; the sidebar hides these entries (see
+  // stores/menu.ts). Guard the routes too, so a bookmarked or hand-typed URL
+  // lands on the chat surface instead of rendering a browser-only page the
+  // viewer cannot act on. Backend RBAC remains the authority on data access.
+  if (authStore.currentTenantRole === 'viewer' && VIEWER_FORBIDDEN_ROUTE_NAMES.has(String(to.name ?? ''))) {
+    next('/platform/creatChat')
+    return
+  }
+
   const requiredCapability = to.meta.requiredCapability as DeploymentCapabilityKey | undefined
   if (requiredCapability && !deploymentCapabilities.isSupported(requiredCapability)) {
     MessagePlugin.warning(i18n.global.t('settings.capabilityUnavailable'))

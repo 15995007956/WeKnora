@@ -77,11 +77,22 @@ export const useMenuStore = defineStore('menuStore', () => {
   // 共享空间 (organizations) 仅对当前空间的 admin / owner 暴露入口。
   // viewer / contributor 即便在共享空间里拥有资源，也无需自行管理共享关系，
   // 入口在侧栏只会徒增噪音；后端 RBAC 才是权限的最终来源（见 middleware/rbac.go）。
+  //
+  // 查看者 (viewer) 只保留提问能力：「知识库 / 智能体 / 产物」的入口一律隐藏。
+  // 这三项对 viewer 是只读的浏览面（后端 RBAC 已禁止其创建与上传），
+  // 名单制企业里查看者的职责就是问答，侧栏保持最简可减少误操作与困惑。
+  // 注意这只是导航层的收敛：直接访问路由仍由后端 RBAC 拦截，权限判定不变。
+  const viewerHiddenPaths = new Set(['knowledge-bases', 'agents', 'artifacts'])
+
   const visibleMenuArr = computed(() => {
     const authStore = useAuthStore()
     const deploymentCapabilities = useDeploymentCapabilitiesStore()
+    const isViewer = authStore.currentTenantRole === 'viewer'
     return menuArr.filter(item => {
       if (authStore.isLiteMode && liteHiddenPaths.has(item.path)) {
+        return false
+      }
+      if (isViewer && viewerHiddenPaths.has(item.path)) {
         return false
       }
       if (item.path === 'organizations' && !authStore.hasRole('admin')) {
