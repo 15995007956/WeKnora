@@ -393,12 +393,14 @@ export async function resetUserPassword(req: ResetUserPasswordRequest): Promise<
 }
 
 export interface CreateSystemUserRequest {
-  /** 2-50 characters; CJK is allowed (DingTalk nicknames are often Chinese). */
+  /**
+   * Display name. CJK is allowed — for DingTalk accounts this is normally the
+   * DingTalk nickname ("林成").
+   */
   username: string
   /**
-   * Optional when join_tenant_id is set: pre-created SSO accounts are
-   * identified by username, so the server can mint a non-routable placeholder.
-   * Required for ordinary password accounts.
+   * The account's address, and the key DingTalk logins are matched on
+   * (compared case-insensitively against the address DingTalk reports).
    */
   email: string
   /**

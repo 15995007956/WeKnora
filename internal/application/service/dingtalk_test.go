@@ -687,20 +687,12 @@ func TestDingTalkConfigEnabledRequiresBothCredentials(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Nickname claiming (allow-list mode)
+// Allow-list helpers
 // ---------------------------------------------------------------------------
 
-// newNicknameFixture builds a fixture where nickname claiming is enabled and
-// the pre-created account uses the Chinese nickname as its username.
-func newNicknameFixture(t *testing.T, provisioning string) *dingTalkFixture {
-	t.Helper()
-	f := newDingTalkFixture(t, provisioning)
-	f.svc.config.DingTalkAuth.BindByNickname = true
-	return f
-}
-
 // createPreCreatedUser inserts the account an administrator would have made
-// through the admin UI: username = the DingTalk nickname.
+// through the admin UI: username = the DingTalk nickname, email = the address
+// DingTalk reports. The address is what claiming matches on.
 func createPreCreatedUser(t *testing.T, f *dingTalkFixture, id, username string) *types.User {
 	t.Helper()
 	u := &types.User{
@@ -714,102 +706,6 @@ func createPreCreatedUser(t *testing.T, f *dingTalkFixture, id, username string)
 	}
 	require.NoError(t, f.users.CreateUser(context.Background(), u))
 	return u
-}
-
-// TestDingTalkNicknameClaimBindsPreCreatedAccount is the core allow-list case:
-// a Chinese nickname matches the pre-created username exactly and the unionId
-// gets bound on first login.
-func TestDingTalkNicknameClaimBindsPreCreatedAccount(t *testing.T) {
-	f := newNicknameFixture(t, config.DingTalkProvisioningDeny)
-	f.provider.unionID = "union-shi"
-	f.provider.email = ""
-	f.provider.nick = "史元东"
-
-	pre := createPreCreatedUser(t, f, "user-shi", "史元东")
-
-	resp, err := f.svc.LoginWithDingTalk(context.Background(), "code", "https://kb.example.com/login")
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	assert.True(t, resp.Success)
-	assert.Equal(t, pre.ID, resp.User.ID, "must log into the pre-created account")
-
-	bound, err := f.idents.FindByProviderSubject(
-		context.Background(), types.IdentityProviderDingTalk, "union-shi",
-	)
-	require.NoError(t, err)
-	require.NotNil(t, bound)
-	assert.Equal(t, pre.ID, bound.UserID, "first login must bind the unionId")
-
-	// Second login resolves by unionId, not by nickname: rename the profile and
-	// it must still reach the same account.
-	f.provider.unionID = "union-shi"
-	resp2, err := f.svc.LoginWithDingTalk(context.Background(), "code2", "https://kb.example.com/login")
-	require.NoError(t, err)
-	assert.Equal(t, pre.ID, resp2.User.ID)
-	assert.Len(t, f.users.users, 1, "no extra account may be created")
-}
-
-// TestDingTalkNicknameMismatchIsRejected is the "禁止登入" requirement: an
-// unknown nickname must not be able to create an account.
-func TestDingTalkNicknameMismatchIsRejected(t *testing.T) {
-	f := newNicknameFixture(t, config.DingTalkProvisioningDeny)
-	f.provider.unionID = "union-stranger"
-	f.provider.nick = "陌生人"
-	createPreCreatedUser(t, f, "user-shi", "史元东")
-
-	_, err := f.svc.LoginWithDingTalk(context.Background(), "code", "https://kb.example.com/login")
-	require.ErrorIs(t, err, ErrDingTalkUnknownIdentity)
-	assert.Len(t, f.users.users, 1, "an unlisted nickname must not get an account")
-}
-
-// TestDingTalkNicknameClaimRefusesAccountOwnedByAnother pins the anti-hijack
-// rule: a second unionId that happens to share the nickname cannot take over a
-// claimed account.
-func TestDingTalkNicknameClaimRefusesAccountOwnedByAnother(t *testing.T) {
-	f := newNicknameFixture(t, config.DingTalkProvisioningDeny)
-	pre := createPreCreatedUser(t, f, "user-shi", "史元东")
-
-	// Another DingTalk user already owns this account.
-	require.NoError(t, f.idents.Create(context.Background(), &types.UserIdentity{
-		ID:              "ident-other",
-		UserID:          pre.ID,
-		Provider:        types.IdentityProviderDingTalk,
-		ProviderSubject: "union-original",
-	}))
-
-	f.provider.unionID = "union-impostor"
-	f.provider.nick = "史元东"
-	_, err := f.svc.LoginWithDingTalk(context.Background(), "code", "https://kb.example.com/login")
-	require.ErrorIs(t, err, ErrDingTalkAccountAlreadyClaimed)
-}
-
-// TestDingTalkNicknameTrimmedNotStripped documents the matching rule: outer
-// whitespace is tolerated, but the Chinese characters themselves are preserved
-// (sanitizeUsernameCandidate would have erased them).
-func TestDingTalkNicknameTrimmedNotStripped(t *testing.T) {
-	f := newNicknameFixture(t, config.DingTalkProvisioningDeny)
-	pre := createPreCreatedUser(t, f, "user-shi", "史元东")
-
-	// The provider fixture returns a fixed nickname, so exercise the matching
-	// rule directly with a padded CJK nickname.
-	info := &dingTalkUserInfo{Nick: "  史元东  ", UnionID: "union-space"}
-	claimed, err := f.svc.claimDingTalkAccountByNickname(context.Background(), info)
-	require.NoError(t, err)
-	require.NotNil(t, claimed, "surrounding whitespace must be trimmed, not the CJK text")
-	assert.Equal(t, pre.ID, claimed.ID)
-}
-
-// TestDingTalkNicknameClaimDisabledByDefault guards the opt-in: without the
-// switch, no nickname matching happens at all.
-func TestDingTalkNicknameClaimDisabledByDefault(t *testing.T) {
-	f := newDingTalkFixture(t, config.DingTalkProvisioningDeny)
-	f.provider.unionID = "union-x"
-	f.provider.nick = "史元东"
-	createPreCreatedUser(t, f, "user-shi", "史元东")
-
-	_, err := f.svc.LoginWithDingTalk(context.Background(), "code", "https://kb.example.com/login")
-	require.ErrorIs(t, err, ErrDingTalkUnknownIdentity,
-		"nickname claiming is off by default, so the login must be refused")
 }
 
 // ---------------------------------------------------------------------------

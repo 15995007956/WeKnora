@@ -402,47 +402,21 @@ func (s *userService) resolveDingTalkUser(
 		return user, identity, false, nil
 	}
 
-	email := strings.TrimSpace(info.Email)
+	email := strings.TrimSpace(strings.ToLower(info.Email))
 
-	// Explicit opt-in: adopt an existing account by email.
+	// Allow-list claiming, by the full address the provider returns.
+	//
+	// Mapping: users.email is the claim key, users.username is whatever the
+	// administrator typed (normally the DingTalk nickname). The two are
+	// independent — the address decides who may log in, the username decides
+	// what the UI shows.
+	//
+	// First login only: bindDingTalkIdentity records the immutable unionId, and
+	// every later login resolves through it above. That binding is what stops a
+	// recycled corporate address (same mailbox, different employee) from
+	// inheriting the previous holder's account.
 	if cfg.BindByEmail && email != "" {
-		existing, lookupErr := s.userRepo.GetUserByEmail(ctx, email)
-		if lookupErr != nil && !isUserLookupNotFound(lookupErr) {
-			return nil, nil, false, fmt.Errorf("failed to look up user by email: %w", lookupErr)
-		}
-		if existing != nil {
-			bound, bindErr := s.bindDingTalkIdentity(ctx, existing, info)
-			if bindErr != nil {
-				return nil, nil, false, bindErr
-			}
-			return existing, bound, false, nil
-		}
-	}
-
-	// Email-prefix claiming runs before nickname claiming: the local part of a
-	// corporate address is unique and stable, while nicknames repeat and change.
-	// Both are first-login only; the immutable unionId is bound afterwards.
-	if cfg.BindByEmailPrefix {
-		claimed, claimErr := s.claimDingTalkAccountByEmailPrefix(ctx, info)
-		if claimErr != nil {
-			return nil, nil, false, claimErr
-		}
-		if claimed != nil {
-			bound, bindErr := s.bindDingTalkIdentity(ctx, claimed, info)
-			if bindErr != nil {
-				return nil, nil, false, bindErr
-			}
-			return claimed, bound, false, nil
-		}
-	}
-
-	// Nickname claiming (first login only): an administrator pre-creates the
-	// account with the DingTalk nickname as its username, and the first login
-	// from that person binds the immutable unionId to it. Every later login
-	// goes through the unionId lookup above, so a renamed or duplicated
-	// nickname cannot take over an account that has already been claimed.
-	if cfg.BindByNickname {
-		claimed, claimErr := s.claimDingTalkAccountByNickname(ctx, info)
+		claimed, claimErr := s.claimDingTalkAccountByEmail(ctx, info, email)
 		if claimErr != nil {
 			return nil, nil, false, claimErr
 		}
@@ -490,44 +464,44 @@ func (s *userService) resolveDingTalkUser(
 	return user, bound, true, nil
 }
 
-// claimDingTalkAccountByEmailPrefix resolves an unbound DingTalk login to a
-// pre-created account whose username equals the local part of the returned
-// email address (honestsky@corp.com -> "honestsky").
+// claimDingTalkAccountByEmail resolves an unbound DingTalk login to a
+// pre-created local account by the full address DingTalk returns.
 //
-// Why prefer this over the nickname: the email local part is unique inside the
-// organization and survives display-name edits. Matching is an exact,
-// case-insensitive comparison of the local part only, so a differently-cased
-// address still claims the account while two different domains never collide
-// unless their local parts do.
+// Account layout this expects:
 //
-// Returns (nil, nil) when there is no email or nothing matches, which lets the
-// caller fall through to nickname claiming and then to the provisioning policy.
-func (s *userService) claimDingTalkAccountByEmailPrefix(
-	ctx context.Context, info *dingTalkUserInfo,
+//	users.username = the administrator's chosen display name (usually the
+//	                 DingTalk nickname, e.g. "林成")
+//	users.email    = the same address DingTalk reports (e.g. "lin@corp.com")
+//
+// The address is the claim key, not the username: addresses are unique inside
+// an organization and survive display-name edits, while nicknames repeat.
+//
+// Matching is an exact, case-insensitive comparison of the whole address. A
+// partial or fuzzy match would let one employee claim another's account.
+//
+// Returns (nil, nil) when the profile carries no email or nothing matches, in
+// which case the caller falls through to the provisioning policy.
+func (s *userService) claimDingTalkAccountByEmail(
+	ctx context.Context, info *dingTalkUserInfo, email string,
 ) (*types.User, error) {
-	email := strings.TrimSpace(info.Email)
 	if email == "" {
 		return nil, nil
 	}
-	local := strings.ToLower(strings.TrimSpace(strings.Split(email, "@")[0]))
-	if local == "" {
-		return nil, nil
-	}
-
-	candidate, err := s.userRepo.GetUserByUsername(ctx, local)
+	candidate, err := s.userRepo.GetUserByEmail(ctx, email)
 	if err != nil {
 		if isUserLookupNotFound(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to look up email prefix %q: %w",
-			secutils.SanitizeForLog(local), err)
+		return nil, fmt.Errorf("failed to look up account for %q: %w",
+			secutils.SanitizeForLog(email), err)
 	}
-	return s.acceptClaimCandidate(ctx, candidate, info, local, "email prefix")
+	return s.acceptClaimCandidate(ctx, candidate, info, email, "email")
 }
 
-// acceptClaimCandidate is the shared guard for allow-list claiming: it refuses
-// when the account is already bound to a different DingTalk unionId, so two
-// people can never end up sharing (or hijacking) one account.
+// acceptClaimCandidate is the guard for allow-list claiming: it refuses when
+// the account is already bound to a different DingTalk unionId, so two people
+// can never end up sharing (or hijacking) one account — including the case
+// where a corporate address is recycled to a new employee.
 func (s *userService) acceptClaimCandidate(
 	ctx context.Context, candidate *types.User, info *dingTalkUserInfo,
 	identifier, source string,
@@ -551,47 +525,6 @@ func (s *userService) acceptClaimCandidate(
 	logger.Infof(ctx, "DingTalk login: first-time claim of account %s by %s %q",
 		candidate.ID, source, secutils.SanitizeForLog(identifier))
 	return candidate, nil
-}
-
-// claimDingTalkAccountByNickname resolves an unbound DingTalk login to a
-// pre-created local account whose username equals the DingTalk nickname.
-//
-// This is the allow-list half of the flow: an administrator creates the
-// account first, and only then can that person log in. The nickname is used
-// exactly once, to find the account; the binding written afterwards is keyed
-// on the immutable unionId, so later nickname edits or duplicates cannot
-// re-point the identity.
-//
-// Matching rules, deliberately strict:
-//   - The nickname is NOT run through sanitizeUsernameCandidate: that helper
-//     strips non-ASCII characters, which would turn a Chinese nickname such as
-//     "史元东" into an empty string and silently break every claim.
-//   - Only surrounding whitespace is trimmed; inner characters must match
-//     exactly. Fuzzy or case-insensitive matching would let one person claim
-//     another's account.
-//   - An account that a different unionId already owns is never returned, so
-//     two people sharing a nickname cannot hijack each other.
-//
-// Returns (nil, nil) when nothing matches, which lets the caller fall through
-// to the configured provisioning policy.
-func (s *userService) claimDingTalkAccountByNickname(
-	ctx context.Context, info *dingTalkUserInfo,
-) (*types.User, error) {
-	username := strings.TrimSpace(info.Nick)
-	if username == "" {
-		return nil, nil
-	}
-
-	candidate, err := s.userRepo.GetUserByUsername(ctx, username)
-	if err != nil {
-		if isUserLookupNotFound(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to look up DingTalk nickname %q: %w",
-			secutils.SanitizeForLog(username), err)
-	}
-	// acceptClaimCandidate already refuses an account bound to another unionId.
-	return s.acceptClaimCandidate(ctx, candidate, info, username, "nickname")
 }
 
 // bootstrapFirstDingTalkUser creates and promotes the first account on a
@@ -713,8 +646,9 @@ func (s *userService) provisionDingTalkUser(
 	}
 
 	email := strings.TrimSpace(info.Email)
+	placeholder := dingTalkPlaceholderEmail(info.UnionID)
 	if email == "" {
-		email = dingTalkPlaceholderEmail(info.UnionID)
+		email = placeholder
 	}
 
 	user, err := s.Register(ctx, &types.RegisterRequest{
@@ -723,17 +657,16 @@ func (s *userService) provisionDingTalkUser(
 		Password:           randomPassword,
 		TenantProvisioning: dingTalkProvisioningMode(cfg),
 	})
-	if err != nil && errors.Is(err, ErrUserEmailExists) && email != dingTalkPlaceholderEmail(info.UnionID) {
-		// bind_by_email is off, yet another local account already owns this
-		// address. Creating the account under the same email would collide on
-		// the users.email unique index, so fall back to the deterministic
-		// placeholder instead of failing the login outright.
+	if err != nil && errors.Is(err, ErrUserEmailExists) && email != placeholder {
+		// Another local account already owns this address. Creating under the
+		// same address would collide on the users.email unique index, so fall
+		// back to the deterministic placeholder instead of failing the login.
 		logger.Warnf(ctx,
-			"DingTalk login: email already used by another account and bind_by_email is off; "+
+			"DingTalk login: address already used by another account; "+
 				"provisioning with a placeholder address instead")
 		user, err = s.Register(ctx, &types.RegisterRequest{
 			Username:           username,
-			Email:              dingTalkPlaceholderEmail(info.UnionID),
+			Email:              placeholder,
 			Password:           randomPassword,
 			TenantProvisioning: dingTalkProvisioningMode(cfg),
 		})

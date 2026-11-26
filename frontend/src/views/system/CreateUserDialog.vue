@@ -202,10 +202,9 @@ const rules = computed<Record<string, FormRule[]>>(() => ({
     { min: 2, max: 50, message: t('system.globalSettings.createUser.validation.usernameLength'), trigger: 'blur' },
   ],
   email: [
-    // Required only for ordinary password accounts. A pre-created account that
-    // joins a workspace is identified by username, so the server can supply a
-    // placeholder address when none is given.
-    { required: !form.joinTenantId, message: t('system.globalSettings.createUser.validation.emailRequired'), trigger: 'blur' },
+    // Always required now: for DingTalk accounts the address is the claim key
+    // (users.email), and the username only supplies the display name.
+    { required: true, message: t('system.globalSettings.createUser.validation.emailRequired'), trigger: 'blur' },
     { email: true, message: t('system.globalSettings.createUser.validation.emailInvalid'), trigger: 'blur' },
   ],
   newPassword: newPasswordRules(t, complexPasswordEnabled.value),
@@ -281,9 +280,9 @@ async function submit() {
       username: form.username.trim(),
       email: form.email.trim(),
     }
-    // Joining an existing workspace makes email optional: the account is
-    // identified by username (DingTalk allow-list) and the server fills in a
-    // placeholder address.
+    // Choosing a workspace adds the account to it as a member with join_role
+    // instead of provisioning a personal workspace. The email stays required:
+    // it is what DingTalk logins are matched on.
     if (form.joinTenantId) {
       payload.join_tenant_id = Number(form.joinTenantId)
       payload.join_role = form.joinRole || 'viewer'
