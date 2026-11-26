@@ -124,7 +124,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import type { FormInstanceFunctions, FormRule } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { createSystemUser, type CreateSystemUserRequest } from '@/api/system'
-import { listAllTenants } from '@/api/tenant'
+import { get } from '@/utils/request'
 import { getAuthConfig } from '@/api/auth'
 import { copyWithToast } from '@/utils/clipboard'
 import { newPasswordRules } from '@/utils/passwordPolicy'
@@ -159,8 +159,13 @@ const form = reactive({
   joinRole: 'viewer' as string,
 })
 
-// Workspace choices for the "add to an existing workspace" path. Loaded lazily
-// when the dialog opens; an empty list simply hides the option's effect.
+// Workspace choices for the "add to an existing workspace" path.
+//
+// Deliberately sourced from /tenants/current rather than /tenants/all: the
+// latter is behind RequireCrossTenantAccess, which is off by default, so the
+// dropdown came up empty on a stock deployment. The current workspace is the
+// one an administrator creating allow-list accounts actually wants, and reading
+// it needs no extra privilege.
 const tenants = ref<Array<{ id: number; name: string }>>([])
 const tenantsLoading = ref(false)
 const tenantOptions = computed(() =>
@@ -175,9 +180,14 @@ const loadTenants = async () => {
   if (tenants.value.length || tenantsLoading.value) return
   tenantsLoading.value = true
   try {
-    const resp = await listAllTenants()
-    const items = resp?.data?.items ?? []
-    tenants.value = items.map((t0) => ({ id: Number(t0.id), name: t0.name || '' }))
+    const resp = await get('/api/v1/tenants/current')
+    const payload = (resp as any)?.data ?? resp
+    const id = Number(payload?.id ?? 0)
+    if (id > 0) {
+      tenants.value = [{ id, name: String(payload?.name ?? '') }]
+    } else {
+      tenants.value = []
+    }
   } catch {
     tenants.value = []
   } finally {
