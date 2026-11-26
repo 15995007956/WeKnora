@@ -315,6 +315,11 @@ export default {
             self_serve: '自助注册（任何人可注册）',
             invite_register: '仅限邀请注册（需有效邀请链接）',
             invite_only: '禁止注册（已有账号仍可接受邀请）'
+          },
+          dingtalk_provisioning_mode: {
+            create_personal: '自动开户（含个人空间）',
+            tenantless: '只建号（等邀请加入空间）',
+            deny: '拒绝登录（需管理员先建号）'
           }
         }
       },
@@ -345,8 +350,12 @@ export default {
           docker_enabled: '是否允许 Docker 沙箱后端。本机 docker.sock 等同宿主机 root，默认关闭。仅系统管理员可打开；打开后立即生效，无需重启。私有化单机且已挂载 daemon socket，或配置了带 TLS 的远程 tcp:// 时再启用。'
         },
         auth: {
-          registration_mode: '注册模式。开放注册允许任何人创建账号；仅限邀请注册要求有效邀请链接；禁止注册不允许创建账号，但已有账号仍可接受邀请。保存后立即生效。',
+          registration_mode: '注册模式。开放注册允许任何人创建账号；仅限邀请注册要求有效邀请链接；禁止注册不允许创建账号，但已有账号仍可接受邀请。保存后立即生效。注意：启用钉钉登录后，员工通常走钉钉建号，此处的注册模式只影响密码注册。',
           default_tenant_mode: '公开注册后的空间初始化策略。create_personal 会自动创建个人空间并授予 Owner；tenantless 仅创建账户，用户需要接受邀请或主动创建空间。只影响之后注册的用户。',
+          dingtalk_enabled: '是否启用钉钉扫码登录。凭据（Client ID / Secret）需在环境变量 DINGTALK_CLIENT_ID 与 DINGTALK_CLIENT_SECRET 中配置，出于安全考虑不在本页面显示。凭据缺失时即使开启，登录入口也不会出现。修改后立即生效。',
+          dingtalk_password_login_enabled: '是否保留邮箱密码登录。关闭后登录页只展示钉钉入口，且密码登录接口会直接拒绝。建议内部统一走钉钉时关闭。修改后立即生效。',
+          dingtalk_allowlist_enabled: '白名单开关。开启后，只有管理员预先建好的账号（邮箱需与钉钉返回地址完全一致）才能登录，适合员工名单受控的企业。关闭时按下方策略处理未登记用户。修改后立即生效。',
+          dingtalk_provisioning_mode: '未登记用户的处理方式。自动开户 = 首次扫码即建号并创建个人空间；只建号 = 建号但不建空间，等邀请；拒绝登录 = 完全禁止（配合白名单使用）。仅在上方白名单开关关闭时生效。',
           complex_password_enabled: '是否启用复杂密码。开启后密码必须包含大小写字母、数字和特殊字符。修改后立即生效，只影响新注册用户或新密码修改/重置操作。特殊字符包含：{specialChars}'
         }
       },
@@ -379,6 +388,10 @@ export default {
         auth: {
           registration_mode: '注册模式',
           default_tenant_mode: '注册默认空间策略',
+          dingtalk_enabled: '启用钉钉扫码登录',
+          dingtalk_password_login_enabled: '保留密码登录',
+          dingtalk_allowlist_enabled: '启用白名单（仅预建账号可登录）',
+          dingtalk_provisioning_mode: '未登记用户的处理方式',
           complex_password_enabled: '启用复杂密码'
         }
       },

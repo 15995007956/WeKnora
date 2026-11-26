@@ -350,7 +350,11 @@ export default {
         auth: {
           registration_mode: 'Registration mode',
           default_tenant_mode: 'Default workspace provisioning',
-          complex_password_enabled: 'Require complex password'
+          complex_password_enabled: 'Require complex password',
+          dingtalk_enabled: 'Enable DingTalk QR sign-in',
+          dingtalk_password_login_enabled: 'Keep password sign-in',
+          dingtalk_allowlist_enabled: 'Enable allow-list (pre-created accounts only)',
+          dingtalk_provisioning_mode: 'Handling of unlisted users'
         },
         ssrf: {
           whitelist: 'SSRF protection allowlist'
@@ -382,7 +386,11 @@ export default {
         auth: {
           registration_mode: 'Registration mode. Open registration allows anyone to create an account; invitation registration requires a valid invitation link; disabled registration prevents account creation while existing accounts can still accept invitations. Changes take effect immediately.',
           default_tenant_mode: 'Workspace provisioning after public registration. create_personal creates an Owner workspace; tenantless creates only the account until the user accepts an invitation or creates a workspace. Applies to new users only.',
-          complex_password_enabled: 'Whether to require complex passwords. When enabled, passwords must contain uppercase and lowercase letters, numbers, and special characters. Changes take effect immediately and only apply to newly registered users or new password changes/resets. Special characters include {specialChars}'
+          complex_password_enabled: 'Whether to require complex passwords. When enabled, passwords must contain uppercase and lowercase letters, numbers, and special characters. Changes take effect immediately and only apply to newly registered users or new password changes/resets. Special characters include {specialChars}',
+          dingtalk_enabled: 'Whether to offer DingTalk QR sign-in. Credentials (Client ID / Secret) are configured through the DINGTALK_CLIENT_ID and DINGTALK_CLIENT_SECRET environment variables and are deliberately not shown here for security. Without them the entry stays hidden even when enabled. Changes take effect immediately.',
+          dingtalk_password_login_enabled: 'Whether to keep email/password sign-in. When off, the login page only offers DingTalk and the password endpoint refuses requests. Recommended off when the organization standardises on DingTalk. Changes take effect immediately.',
+          dingtalk_allowlist_enabled: 'Allow-list switch. When on, only accounts an administrator created in advance can sign in, matched by an email address identical to the one DingTalk reports. Turn off to fall back to the policy below. Changes take effect immediately.',
+          dingtalk_provisioning_mode: 'How an unlisted DingTalk user is handled. Create with workspace = register and create a personal workspace; account only = register without a workspace, awaiting an invitation; refuse = reject outright (use with the allow-list). Only applies while the allow-list switch above is off.'
         },
         ssrf: {
           whitelist: 'SSRF protection allowlist. Accepts entries such as example.com / *.foo.com / 10.0.0.0/8 / 2001:db8::1. Takes effect immediately after saving. The SSRF_WHITELIST_EXTRA environment variable is still maintained by the deployer and is not overridden here.'
@@ -416,6 +424,11 @@ export default {
             self_serve: 'Self-service (anyone can register)',
             invite_register: 'Invitation registration (valid link required)',
             invite_only: 'Registration disabled (existing accounts can accept invitations)'
+          },
+          dingtalk_provisioning_mode: {
+            create_personal: 'Create account with personal workspace',
+            tenantless: 'Create account only (waits for an invitation)',
+            deny: 'Refuse sign-in (admin must create the account first)'
           },
           default_tenant_mode: {
             create_personal: 'Create personal workspace',

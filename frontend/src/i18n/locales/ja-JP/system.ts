@@ -350,7 +350,11 @@ export default {
         auth: {
           registration_mode: '登録モード',
           default_tenant_mode: 'デフォルトのワークスペース作成方式',
-          complex_password_enabled: '複雑なパスワードを必須にする'
+          complex_password_enabled: '複雑なパスワードを必須にする',
+          dingtalk_enabled: 'DingTalk QR ログインを有効にする',
+          dingtalk_password_login_enabled: 'パスワードログインを残す',
+          dingtalk_allowlist_enabled: '許可リストを有効化（事前作成アカウントのみ）',
+          dingtalk_provisioning_mode: '未登録ユーザーの扱い'
         },
         ssrf: {
           whitelist: 'SSRF保護の許可リスト'
@@ -382,7 +386,11 @@ export default {
         auth: {
           registration_mode: '登録モード。公開登録では誰でもアカウントを作成できます。招待登録には有効な招待リンクが必要です。登録禁止でも既存アカウントは招待を承諾できます。保存後すぐに反映されます。',
           default_tenant_mode: '公開登録後のワークスペース作成方式です。create_personalはオーナー権限のワークスペースを作成し、tenantlessはアカウントのみを作成して、ユーザが招待を承諾するかワークスペースを作成するまで待ちます。新規ユーザにのみ適用されます。',
-          complex_password_enabled: '複雑なパスワードを必須にするかどうかです。有効にすると、パスワードに大文字・小文字・数字・特殊文字を含める必要があります。変更はすぐに反映され、新規登録ユーザおよび新たなパスワード変更・リセットにのみ適用されます。特殊文字は{specialChars}です'
+          complex_password_enabled: '複雑なパスワードを必須にするかどうかです。有効にすると、パスワードに大文字・小文字・数字・特殊文字を含める必要があります。変更はすぐに反映され、新規登録ユーザおよび新たなパスワード変更・リセットにのみ適用されます。特殊文字は{specialChars}です',
+          dingtalk_enabled: 'DingTalk QR コードログインを提供するかどうかです。認証情報（Client ID / Secret）は環境変数 DINGTALK_CLIENT_ID と DINGTALK_CLIENT_SECRET で設定します。セキュリティ上の理由からこの画面には表示しません。認証情報がない場合、有効にしてもログイン入口は表示されません。変更は即時反映されます。',
+          dingtalk_password_login_enabled: 'メールアドレスとパスワードによるログインを残すかどうかです。オフにするとログイン画面は DingTalk のみを表示し、パスワード認証 API はリクエストを拒否します。組織全体で DingTalk に統一する場合にオフにします。変更は即時反映されます。',
+          dingtalk_allowlist_enabled: '許可リストのスイッチです。オンにすると、管理者が事前に作成したアカウント（DingTalk が返すアドレスと完全一致するメールアドレス）のみログインできます。オフの場合は下のポリシーに従います。変更は即時反映されます。',
+          dingtalk_provisioning_mode: '未登録の DingTalk ユーザーの扱いです。自動作成 = 初回スキャンでアカウントと個人ワークスペースを作成。アカウントのみ = ワークスペースなしで作成し招待を待機。拒否 = 完全に拒否（許可リストと併用）。上の許可リストがオフのときのみ有効です。'
         },
         ssrf: {
           whitelist: 'SSRF保護の許可リストです。example.com / *.foo.com / 10.0.0.0/8 / 2001:db8::1のような項目を指定できます。保存後すぐに反映されます。SSRF_WHITELIST_EXTRA環境変数は引き続きデプロイ担当者が管理し、ここでは上書きされません。'
@@ -416,6 +424,11 @@ export default {
             self_serve: 'セルフサービス（誰でも登録可能）',
             invite_register: '招待リンクでのみ登録可能',
             invite_only: '登録禁止（既存アカウントは招待を承諾可能）'
+          },
+          dingtalk_provisioning_mode: {
+            create_personal: '自動作成（個人ワークスペース含む）',
+            tenantless: 'アカウントのみ（招待待ち）',
+            deny: 'ログイン拒否（管理者が事前作成）'
           },
           default_tenant_mode: {
             create_personal: '個人ワークスペースを作成',

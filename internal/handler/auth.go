@@ -264,7 +264,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// An SSO-only deployment hides the password form; the endpoint must refuse
 	// too, otherwise the form is only cosmetically disabled.
-	if h.configInfo != nil && !h.configInfo.DingTalkAuth.PasswordLoginAllowed() {
+	if !h.passwordLoginAllowed(ctx) {
 		logger.Warn(ctx, "Password login rejected by password_login_enabled=false")
 		c.Error(errors.NewForbiddenError("Password login is disabled; please sign in with DingTalk"))
 		return
@@ -876,7 +876,7 @@ func (h *AuthHandler) GetAuthConfig(c *gin.Context) {
 		// Drives whether the login page renders the email/password form.
 		// Deployments fronted by DingTalk can turn it off so scanning is the
 		// only way in.
-		"password_login_enabled": h.configInfo == nil || h.configInfo.DingTalkAuth.PasswordLoginAllowed(),
+		"password_login_enabled": h.passwordLoginAllowed(c.Request.Context()),
 	})
 }
 
@@ -1075,10 +1075,37 @@ func (h *AuthHandler) ValidateToken(c *gin.Context) {
 }
 
 // dingTalkEnabled reports whether the DingTalk login entry should be offered.
-// It is derived from the same config the service reads, so the UI gate and the
-// actual login gate cannot disagree.
-func (h *AuthHandler) dingTalkEnabled() bool {
-	return h.configInfo != nil && h.configInfo.DingTalkAuth.Enabled()
+//
+// The switch is resolved through SystemSettingService so an administrator
+// toggling it under Settings → System takes effect immediately, instead of only
+// after a restart. Credentials still come from the environment, so enabling it
+// without them leaves the entry hidden.
+func (h *AuthHandler) dingTalkEnabled(ctx context.Context) bool {
+	if h.configInfo == nil || h.configInfo.DingTalkAuth == nil {
+		return false
+	}
+	d := h.configInfo.DingTalkAuth
+	enabled := d.Enable
+	if h.systemSettingSvc != nil {
+		enabled = h.systemSettingSvc.GetBool(ctx, "auth.dingtalk_enabled", "DINGTALK_AUTH_ENABLE", enabled)
+	}
+	return enabled &&
+		strings.TrimSpace(d.AppKey) != "" && strings.TrimSpace(d.AppSecret) != ""
+}
+
+// passwordLoginAllowed resolves whether the email/password form is offered,
+// honouring the runtime setting when the settings service is wired.
+func (h *AuthHandler) passwordLoginAllowed(ctx context.Context) bool {
+	if h.configInfo == nil || h.configInfo.DingTalkAuth == nil {
+		return true
+	}
+	def := h.configInfo.DingTalkAuth.PasswordLoginAllowed()
+	if h.systemSettingSvc == nil {
+		return def
+	}
+	return h.systemSettingSvc.GetBool(
+		ctx, "auth.dingtalk_password_login_enabled", "DINGTALK_PASSWORD_LOGIN_ENABLED", def,
+	)
 }
 
 // dingTalkCallbackURL derives the absolute /auth/dingtalk/callback URL from the
@@ -1110,7 +1137,7 @@ func (h *AuthHandler) GetDingTalkConfig(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, &types.DingTalkConfigResponse{
 		Success:             true,
-		Enabled:             h.dingTalkEnabled(),
+		Enabled:             h.dingTalkEnabled(c.Request.Context()),
 		ProviderDisplayName: displayName,
 	})
 }

@@ -385,9 +385,15 @@ type SettingsSection = 'users' | 'access' | 'tenant' | 'runtime' | 'security' | 
 // unexpected key.
 const SETTINGS_SECTION_KEYS: Record<Exclude<SettingsSection, 'other' | 'users'>, readonly string[]> = {
   access: [
+    // Password/registration policy first, then the DingTalk switches that
+    // usually replace it in an internal deployment.
     'auth.registration_mode',
     'auth.complex_password_enabled',
     'auth.default_tenant_mode',
+    'auth.dingtalk_enabled',
+    'auth.dingtalk_password_login_enabled',
+    'auth.dingtalk_allowlist_enabled',
+    'auth.dingtalk_provisioning_mode',
     'tenant.self_service_creation_enabled',
     'tenant.max_owned_per_user',
   ],

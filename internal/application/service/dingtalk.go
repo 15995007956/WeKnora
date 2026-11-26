@@ -86,18 +86,59 @@ func newDingTalkHTTPClient() *http.Client {
 }
 
 // dingTalkConfig returns the effective configuration, or ErrDingTalkDisabled
-// when the feature is off. A nil-credential configuration is treated as
-// disabled rather than as a mid-flight failure, matching the UI behaviour
-// where the login button simply does not render.
-func (s *userService) dingTalkConfig() (*config.DingTalkAuthConfig, error) {
-	if s.config == nil || !s.config.DingTalkAuth.Enabled() {
+// when the feature is off.
+//
+// The behavioural switches (enable, password login, allow-list, provisioning
+// mode) are resolved through SystemSettingService on every call, so an
+// administrator editing them under Settings → System does not need a restart
+// and the DB value overrides the environment. Credentials and endpoints stay
+// startup-bound: they are secrets and operator-supplied URLs, and exposing them
+// through the settings API would leak the secret to any system administrator
+// session.
+func (s *userService) dingTalkConfig(ctx context.Context) (*config.DingTalkAuthConfig, error) {
+	if s.config == nil || s.config.DingTalkAuth == nil {
 		return nil, ErrDingTalkDisabled
 	}
+	// Copy so the runtime overrides below never mutate shared startup state.
 	cfg := *s.config.DingTalkAuth
+
+	if s.systemSettingSvc != nil {
+		cfg.Enable = s.systemSettingSvc.GetBool(
+			ctx, "auth.dingtalk_enabled", "DINGTALK_AUTH_ENABLE", cfg.Enable,
+		)
+		passwordLogin := s.systemSettingSvc.GetBool(
+			ctx, "auth.dingtalk_password_login_enabled",
+			"DINGTALK_PASSWORD_LOGIN_ENABLED", cfg.PasswordLoginAllowed(),
+		)
+		cfg.PasswordLoginEnabled = &passwordLogin
+		cfg.BindByEmail = s.systemSettingSvc.GetBool(
+			ctx, "auth.dingtalk_allowlist_enabled", "DINGTALK_BIND_BY_EMAIL", cfg.BindByEmail,
+		)
+		cfg.ProvisioningMode = s.systemSettingSvc.GetString(
+			ctx, "auth.dingtalk_provisioning_mode",
+			"DINGTALK_PROVISIONING_MODE", cfg.ProvisioningMode,
+		)
+	}
+
+	if !cfg.Enabled() {
+		return nil, ErrDingTalkDisabled
+	}
 	if err := validateDingTalkEndpoints(&cfg); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// effectivePasswordLoginAllowed reports whether the email/password form should
+// be offered, honouring the runtime override when the settings service is wired.
+func (s *userService) effectivePasswordLoginAllowed(ctx context.Context) bool {
+	if s.systemSettingSvc == nil || s.config == nil || s.config.DingTalkAuth == nil {
+		return s.config == nil || s.config.DingTalkAuth.PasswordLoginAllowed()
+	}
+	return s.systemSettingSvc.GetBool(
+		ctx, "auth.dingtalk_password_login_enabled", "DINGTALK_PASSWORD_LOGIN_ENABLED",
+		s.config.DingTalkAuth.PasswordLoginAllowed(),
+	)
 }
 
 // validateDingTalkEndpoints rejects endpoints that are empty or that the SSRF
@@ -146,7 +187,7 @@ func dingTalkProvisioningMode(cfg *config.DingTalkAuthConfig) types.TenantProvis
 func (s *userService) GetDingTalkAuthorizationURL(
 	ctx context.Context, redirectURI string,
 ) (*types.OIDCAuthURLResponse, error) {
-	cfg, err := s.dingTalkConfig()
+	cfg, err := s.dingTalkConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +249,7 @@ func (s *userService) LoginWithDingTalk(
 		return nil, errors.New("redirect_uri is required")
 	}
 
-	cfg, err := s.dingTalkConfig()
+	cfg, err := s.dingTalkConfig(ctx)
 	if err != nil {
 		return nil, err
 	}

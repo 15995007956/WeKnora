@@ -161,6 +161,48 @@ var registry = map[string]settingSpec{
 		Description: "是否启用复杂密码。开启后密码必须包含大小写字母、数字和特殊字符。" +
 			"修改后立即生效，只影响新注册用户或新密码修改/重置操作。特殊字符包含：!@#$%^&*()_+-=[]{}|;:,.<>?",
 	},
+	// DingTalk login switches. The credentials (AppKey/AppSecret) stay in the
+	// environment on purpose: secrets must not be readable through this API,
+	// which returns every value to the UI. Only the behavioural switches are
+	// runtime-tunable, so an operator can turn DingTalk on or off and adjust the
+	// allow-list policy without editing .env and restarting.
+	"auth.dingtalk_enabled": {
+		Type:     "bool",
+		EnvName:  "DINGTALK_AUTH_ENABLE",
+		Default:  false,
+		Category: "auth",
+		Description: "是否启用钉钉扫码登录。启用前需在环境变量中配置 DINGTALK_CLIENT_ID 与 DINGTALK_CLIENT_SECRET。" +
+			"修改后立即生效；凭据缺失时登录入口会保持隐藏。",
+	},
+	"auth.dingtalk_password_login_enabled": {
+		Type:     "bool",
+		EnvName:  "DINGTALK_PASSWORD_LOGIN_ENABLED",
+		Default:  true,
+		Category: "auth",
+		Description: "是否保留邮箱密码登录。关闭后登录页只展示钉钉扫码入口，" +
+			"且 POST /auth/login 会直接拒绝，适合企业内部统一走钉钉身份的场景。修改后立即生效。",
+	},
+	"auth.dingtalk_allowlist_enabled": {
+		Type:     "bool",
+		EnvName:  "DINGTALK_BIND_BY_EMAIL",
+		Default:  false,
+		Category: "auth",
+		Description: "白名单开关。开启后，只有管理员预先建好（且邮箱与钉钉返回地址一致）的账号才能登录；" +
+			"关闭后按下面的开户策略处理未登记用户。修改后立即生效。",
+	},
+	"auth.dingtalk_provisioning_mode": {
+		Type:    "string",
+		EnvName: "DINGTALK_PROVISIONING_MODE",
+		Default: config.DingTalkProvisioningCreatePersonal,
+		Enum: []string{
+			config.DingTalkProvisioningCreatePersonal,
+			config.DingTalkProvisioningTenantless,
+			config.DingTalkProvisioningDeny,
+		},
+		Category: "auth",
+		Description: "未登记用户的处理方式。create_personal = 自动开户并创建个人空间；" +
+			"tenantless = 只建号、等邀请；deny = 直接拒绝（配合白名单使用）。仅在上面的白名单开关关闭时生效。",
+	},
 	// gallery.policy is the platform-wide image-gallery attribute policy:
 	// a JSON document (types.GalleryPolicyTier) that can toggle attribute
 	// sources and override per-attribute usage flags (in_filter /
@@ -656,7 +698,7 @@ func (s *systemSettingService) resolveRaw(ctx context.Context, key string) (raw 
 // GetInt resolves an int64 setting. Priority: DB > ENV > def. Returns
 // def on every error path so business code never has to handle the
 // "the settings store is broken" case.
-func (s *systemSettingService) GetInt(ctx context.Context, key string, envName string, def int64) int64 {
+func (s *systemSettingService) GetInt(ctx context.Context, key, envName string, def int64) int64 {
 	if raw, ok := s.resolveRaw(ctx, key); ok {
 		// Try canonical number form first.
 		var n int64
@@ -683,7 +725,7 @@ func (s *systemSettingService) GetInt(ctx context.Context, key string, envName s
 }
 
 // GetString resolves a string setting. Same priority + degradation as GetInt.
-func (s *systemSettingService) GetString(ctx context.Context, key string, envName string, def string) string {
+func (s *systemSettingService) GetString(ctx context.Context, key, envName, def string) string {
 	if raw, ok := s.resolveRaw(ctx, key); ok {
 		var v string
 		if err := json.Unmarshal(raw, &v); err == nil {
@@ -701,7 +743,7 @@ func (s *systemSettingService) GetString(ctx context.Context, key string, envNam
 
 // GetBool resolves a bool setting. Tolerates legacy ENV values like
 // "1", "0", "yes", "no" via strconv.ParseBool. Same priority + degradation.
-func (s *systemSettingService) GetBool(ctx context.Context, key string, envName string, def bool) bool {
+func (s *systemSettingService) GetBool(ctx context.Context, key, envName string, def bool) bool {
 	if raw, ok := s.resolveRaw(ctx, key); ok {
 		var v bool
 		if err := json.Unmarshal(raw, &v); err == nil {
@@ -730,7 +772,7 @@ func (s *systemSettingService) GetBool(ctx context.Context, key string, envName 
 // Same degradation policy as the other Get*: a DB-layer error logs a
 // warning and falls through to ENV/default, so consumer paths
 // (SSRF check, etc.) never have to handle "settings store broken".
-func (s *systemSettingService) GetStringList(ctx context.Context, key string, envName string, def []string) []string {
+func (s *systemSettingService) GetStringList(ctx context.Context, key, envName string, def []string) []string {
 	if raw, ok := s.resolveRaw(ctx, key); ok {
 		var v []string
 		if err := json.Unmarshal(raw, &v); err == nil {

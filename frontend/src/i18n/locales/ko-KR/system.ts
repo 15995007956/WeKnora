@@ -315,6 +315,11 @@ export default {
             self_serve: '셀프 가입 (누구나 가입 가능)',
             invite_register: '초대 가입 (유효한 링크 필요)',
             invite_only: '가입 금지 (기존 계정은 초대 수락 가능)'
+          },
+          dingtalk_provisioning_mode: {
+            create_personal: '자동 생성(개인 워크스페이스 포함)',
+            tenantless: '계정만 생성(초대 대기)',
+            deny: '로그인 거부(관리자가 먼저 생성)'
           }
         }
       },
@@ -347,7 +352,11 @@ export default {
         auth: {
           registration_mode: '가입 모드입니다. 공개 가입은 누구나 계정을 만들 수 있고, 초대 가입은 유효한 초대 링크가 필요합니다. 가입 금지 상태에서도 기존 계정은 초대를 수락할 수 있습니다. 저장 즉시 적용됩니다.',
           default_tenant_mode: '공개 가입 후 공간 초기화 정책입니다. create_personal은 개인 공간을 만들고 Owner를 부여하며, tenantless는 초대 수락 또는 직접 공간 생성 전까지 계정만 만듭니다.',
-          complex_password_enabled: '복잡한 비밀번호를 사용할지 여부입니다. 활성화하면 비밀번호에 대문자, 소문자, 숫자 및 특수 문자가 포함되어야 합니다. 변경 사항은 즉시 적용되며, 새로 가입하는 사용자 또는 비밀번호를 새로 변경하거나 재설정하는 경우에만 적용됩니다. 특수 문자는 다음을 포함합니다: {specialChars}'
+          complex_password_enabled: '복잡한 비밀번호를 사용할지 여부입니다. 활성화하면 비밀번호에 대문자, 소문자, 숫자 및 특수 문자가 포함되어야 합니다. 변경 사항은 즉시 적용되며, 새로 가입하는 사용자 또는 비밀번호를 새로 변경하거나 재설정하는 경우에만 적용됩니다. 특수 문자는 다음을 포함합니다: {specialChars}',
+          dingtalk_enabled: 'DingTalk QR 로그인을 제공할지 여부입니다. 자격 증명(Client ID / Secret)은 환경 변수 DINGTALK_CLIENT_ID 및 DINGTALK_CLIENT_SECRET으로 설정하며 보안상 이 화면에 표시하지 않습니다. 자격 증명이 없으면 사용 설정해도 로그인 진입점이 나타나지 않습니다. 변경 사항은 즉시 적용됩니다.',
+          dingtalk_password_login_enabled: '이메일/비밀번호 로그인을 유지할지 여부입니다. 끄면 로그인 페이지에 DingTalk만 표시되고 비밀번호 로그인 API는 요청을 거부합니다. 조직 전체가 DingTalk를 사용하는 경우 끄는 것을 권장합니다. 변경 사항은 즉시 적용됩니다.',
+          dingtalk_allowlist_enabled: '허용 목록 스위치입니다. 켜면 관리자가 미리 만든 계정(DingTalk가 반환한 주소와 정확히 일치하는 이메일)만 로그인할 수 있습니다. 끄면 아래 정책을 따릅니다. 변경 사항은 즉시 적용됩니다.',
+          dingtalk_provisioning_mode: '등록되지 않은 DingTalk 사용자를 처리하는 방식입니다. 자동 생성 = 첫 스캔 시 계정과 개인 워크스페이스 생성. 계정만 = 워크스페이스 없이 생성 후 초대 대기. 거부 = 완전히 거부(허용 목록과 함께 사용). 위 허용 목록이 꺼져 있을 때만 적용됩니다.'
         }
       },
       keyLabels: {
@@ -379,7 +388,11 @@ export default {
         auth: {
           registration_mode: '가입 모드',
           default_tenant_mode: '기본 공간 프로비저닝',
-          complex_password_enabled: '복잡한 비밀번호 사용'
+          complex_password_enabled: '복잡한 비밀번호 사용',
+          dingtalk_enabled: 'DingTalk QR 로그인 사용',
+          dingtalk_password_login_enabled: '비밀번호 로그인 유지',
+          dingtalk_allowlist_enabled: '허용 목록 사용 (사전 생성 계정만)',
+          dingtalk_provisioning_mode: '미등록 사용자 처리 방식'
         }
       },
       runtime: {

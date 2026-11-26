@@ -315,6 +315,11 @@ export default {
             self_serve: '自助註冊（任何人可註冊）',
             invite_register: '僅限邀請註冊（需有效邀請連結）',
             invite_only: '禁止註冊（已有帳號仍可接受邀請）'
+          },
+          dingtalk_provisioning_mode: {
+            create_personal: '自動開戶（含個人空間）',
+            tenantless: '只建號（等邀請加入空間）',
+            deny: '拒絕登入（需管理員先建號）'
           }
         }
       },
@@ -347,7 +352,11 @@ export default {
         auth: {
           registration_mode: '註冊模式。開放註冊允許任何人建立帳號；僅限邀請註冊要求有效邀請連結；禁止註冊不允許建立帳號，但已有帳號仍可接受邀請。儲存後立即生效。',
           default_tenant_mode: '公開註冊後的空間初始化策略。create_personal 會自動建立個人空間並授予 Owner；tenantless 僅建立帳戶，使用者需要接受邀請或主動建立空間。只影響之後註冊的使用者。',
-          complex_password_enabled: '是否啟用複雜密碼。開啟後密碼必須包含大小寫字母、數字和特殊字符。修改後立即生效，只影響新註冊使用者或新密碼修改/重設操作。特殊字符包含：{specialChars}'
+          complex_password_enabled: '是否啟用複雜密碼。開啟後密碼必須包含大小寫字母、數字和特殊字符。修改後立即生效，只影響新註冊使用者或新密碼修改/重設操作。特殊字符包含：{specialChars}',
+          dingtalk_enabled: '是否啟用釘釘掃碼登入。憑證（Client ID / Secret）需在環境變數 DINGTALK_CLIENT_ID 與 DINGTALK_CLIENT_SECRET 中設定，出於安全考量不在此頁面顯示。憑證缺失時即使開啟，登入入口也不會出現。修改後立即生效。',
+          dingtalk_password_login_enabled: '是否保留郵箱密碼登入。關閉後登入頁只顯示釘釘入口，且密碼登入介面會直接拒絕。建議內部統一走釘釘時關閉。修改後立即生效。',
+          dingtalk_allowlist_enabled: '白名單開關。開啟後，只有管理員預先建好的帳號（郵箱需與釘釘回傳地址完全一致）才能登入。關閉時按下方策略處理未登記使用者。修改後立即生效。',
+          dingtalk_provisioning_mode: '未登記使用者的處理方式。自動開戶 = 首次掃碼即建號並建立個人空間；只建號 = 建號但不建空間，等邀請；拒絕登入 = 完全禁止（配合白名單使用）。僅在上方白名單開關關閉時生效。'
         }
       },
       keyLabels: {
@@ -379,7 +388,11 @@ export default {
         auth: {
           registration_mode: '註冊模式',
           default_tenant_mode: '註冊預設空間策略',
-          complex_password_enabled: '啟用複雜密碼'
+          complex_password_enabled: '啟用複雜密碼',
+          dingtalk_enabled: '啟用釘釘掃碼登入',
+          dingtalk_password_login_enabled: '保留密碼登入',
+          dingtalk_allowlist_enabled: '啟用白名單（僅預建帳號可登入）',
+          dingtalk_provisioning_mode: '未登記使用者的處理方式'
         }
       },
       runtime: {
