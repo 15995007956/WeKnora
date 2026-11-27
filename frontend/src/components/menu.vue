@@ -7,11 +7,11 @@
                 <sup v-if="isLiteEdition" class="lite-badge">Lite</sup>
             </div>
             <div class="logo_actions">
-                <t-tooltip v-if="assistantStore.entry === 'sidebar'" :content="assistantName" placement="bottom">
+                <t-tooltip v-if="assistantStore.entry === 'sidebar' && !isViewer" :content="assistantName" placement="bottom">
                     <AssistantButton data-guide="assistant-entry" icon-only :icon-size="18" :label="assistantName"
                         :active="assistantStore.visible" @click="assistantStore.toggle()" />
                 </t-tooltip>
-                <t-tooltip placement="bottom">
+                <t-tooltip v-if="!isViewer" placement="bottom">
                     <template #content>
                         <span class="cmdk-tip">
                             <span class="cmdk-tip-label">{{ t('menu.search') }}</span>
@@ -66,7 +66,7 @@
             <!-- 全局搜索入口：点击打开命令面板（⌘K）。展开态移至顶部 logo_row 的图标按钮；
                  折叠态在此处保留为图标项 + 深色 tooltip。 -->
             <div class="menu_box menu_box--cmdk" v-if="uiStore.sidebarCollapsed">
-                <t-tooltip placement="right">
+                <t-tooltip v-if="!isViewer" placement="right">
                     <template #content>
                         <span class="cmdk-tip">
                             <span class="cmdk-tip-label">{{ t('menu.search') }}</span>
@@ -81,7 +81,7 @@
                         </div>
                     </div>
                 </t-tooltip>
-                <t-tooltip v-if="assistantStore.entry === 'sidebar'" :content="assistantName" placement="right">
+                <t-tooltip v-if="assistantStore.entry === 'sidebar' && !isViewer" :content="assistantName" placement="right">
                     <AssistantButton data-guide="assistant-entry" class="assistant-sidebar-entry" icon-only :icon-size="18"
                         :label="assistantName" :active="assistantStore.visible" @click="assistantStore.toggle()" />
                 </t-tooltip>
@@ -346,6 +346,11 @@ watch(() => uiStore.sidebarBrowserStatus && toolboxPreview.value.some((tool) => 
 const commandPaletteStore = useCommandPaletteStore();
 const assistantStore = useAssistantStore();
 const assistantName = computed(() => assistantStore.displayName || t('assistant.title'));
+
+// Viewer is a chat-only role: both the ⌘K search entry and the assistant button
+// are hidden (collapsed and expanded variants alike). Navigation-only gate;
+// backend RBAC still authorises every request.
+const isViewer = computed(() => authStore.currentTenantRole === 'viewer');
 
 // Platform-aware label for the ⌘K hint. navigator.platform is deprecated but
 // the alternatives (userAgentData.platform) aren't universally available yet;

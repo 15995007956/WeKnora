@@ -204,6 +204,9 @@ const route = useRoute()
 const router = useRouter()
 const commandPaletteStore = useCommandPaletteStore()
 const authStore = useAuthStore()
+// Viewer never sees the search surface: the entry buttons are hidden and the
+// ⌘K / "/" shortcuts are ignored (see onGlobalKey). Navigation-only gate.
+const isViewer = computed(() => authStore.currentTenantRole === 'viewer')
 const deploymentCapabilities = useDeploymentCapabilitiesStore()
 const { open, initialQuery, recentQueries } = storeToRefs(commandPaletteStore)
 const { startChat } = useStartChat()
@@ -603,6 +606,10 @@ const isEditingElement = (el: EventTarget | null): boolean => {
 }
 
 const onGlobalKey = (e: KeyboardEvent) => {
+  // Viewer is a chat-only role: no search entry, no keyboard shortcut. Bail out
+  // before the handlers below so ⌘K and "/" stay inert for them too — hiding
+  // the button alone would have left both shortcuts working.
+  if (isViewer.value) return
   const isCmd = e.metaKey || e.ctrlKey
   if (isCmd && e.key.toLowerCase() === 'k') {
     // Always allow ⌘K to open, even from an input.

@@ -1,7 +1,8 @@
 <template>
   <!-- On the right edge, where the panel opens, clear of the upload progress
-       card in the bottom-right corner. -->
-  <AssistantButton v-if="assistant.entry === 'launcher' && !assistant.visible" class="assistant-launcher"
+       card in the bottom-right corner. Hidden for Viewers, whose surface is
+       reduced to asking questions in the main chat. -->
+  <AssistantButton v-if="assistant.entry === 'launcher' && !assistant.visible && !isViewer" class="assistant-launcher"
     data-guide="assistant-entry" :label="name" :icon-size="18" @click="assistant.open()" />
 </template>
 
@@ -9,11 +10,15 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAssistantStore } from '@/stores/assistant'
+import { useAuthStore } from '@/stores/auth'
 import AssistantButton from './AssistantButton.vue'
 
 const { t } = useI18n()
 const assistant = useAssistantStore()
+const authStore = useAuthStore()
 const name = computed(() => assistant.displayName || t('assistant.title'))
+// Navigation-only gate; the assistant API still authorises requests server-side.
+const isViewer = computed(() => authStore.currentTenantRole === 'viewer')
 </script>
 
 <style lang="less" scoped>

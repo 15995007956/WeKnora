@@ -5,10 +5,13 @@
             <RouterView />
         </div>
         <!-- WeKnora 助手：停靠时作为布局右栏挤压页面，悬浮时浮在页面上；都不加遮罩，
-             跨页面保留会话，从侧栏、右侧边缘按钮或命令面板唤出（设置里可选） -->
-        <AssistantPanel />
-        <AssistantLauncher />
-        <AssistantPageBridge />
+             跨页面保留会话，从侧栏、右侧边缘按钮或命令面板唤出（设置里可选）。
+             查看者一律不挂载：他们的界面收敛为纯问答，助手入口全部隐藏。 -->
+        <template v-if="!isViewer">
+            <AssistantPanel />
+            <AssistantLauncher />
+            <AssistantPageBridge />
+        </template>
         <div class="upload-mask" v-show="ismask">
             <UploadMask></UploadMask>
         </div>
@@ -24,8 +27,9 @@
 </template>
 <script setup lang="ts">
 import Menu from '@/components/menu.vue'
-import { ref, onMounted, onUnmounted, nextTick, provide, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick, provide, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import UploadMask from '@/components/upload-mask.vue'
 import Settings from '@/views/settings/Settings.vue'
 import GlobalCommandPalette from '@/components/GlobalCommandPalette.vue'
@@ -46,6 +50,10 @@ const route = useRoute();
 const router = useRouter();
 const commandPaletteStore = useCommandPaletteStore();
 const uiStore = useUIStore();
+// Viewer is a chat-only role; the assistant entry points are not mounted at all
+// (see stores/menu.ts for the navigation gate).
+const authStore = useAuthStore();
+const isViewer = computed(() => authStore.currentTenantRole === 'viewer');
 let ismask = ref(false)
 const { t } = useI18n();
 
