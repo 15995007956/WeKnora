@@ -25,7 +25,7 @@
           </template>
         </div>
     </div>
-    <GlobalInvitationBell v-if="!uiStore.sidebarCollapsed" v-slot="{ count, open }">
+    <GlobalInvitationBell v-if="!uiStore.sidebarCollapsed && !isViewer" v-slot="{ count, open }">
       <t-tooltip :content="t('notifications.title')" placement="top">
         <button type="button" class="user-notify" :class="{ 'is-open': open }"
           :aria-label="t('notifications.title')" @click.stop>
@@ -36,7 +36,7 @@
       </t-tooltip>
     </GlobalInvitationBell>
     </div>
-    <GlobalInvitationBell v-if="uiStore.sidebarCollapsed" v-slot="{ count, open }">
+    <GlobalInvitationBell v-if="uiStore.sidebarCollapsed && !isViewer" v-slot="{ count, open }">
       <t-tooltip :content="t('notifications.title')" placement="right">
         <button type="button" class="user-notify" :class="{ 'is-open': open }"
           :aria-label="t('notifications.title')" @click.stop>
@@ -90,6 +90,12 @@
           <t-icon v-if="showTenantSwitcher" name="swap" class="dropdown-tenant-panel-trail"
             :title="$t('tenant.switcher.menuLabel')" />
         </div>
+        <!--
+          Viewer keeps only the sign-out entry. Everything above is account,
+          workspace and admin navigation, none of which a chat-only role needs;
+          the space line stays visible because it names where they are.
+        -->
+        <template v-if="!isViewer">
         <div class="menu-divider"></div>
         <!-- 账号与空间是头像菜单的核心上下文；基础设施类配置统一收进「全部设置」。 -->
         <div class="menu-item" @click="handleQuickNav('general')">
@@ -147,6 +153,7 @@
             </svg>
           </span>
         </div>
+        </template>
         <template v-if="!authStore.isLiteMode">
           <div class="menu-divider"></div>
           <div class="menu-item danger" @click="handleLogout">
@@ -264,6 +271,11 @@ const showTenantIdentityLine = computed(() => {
   if (authStore.canAccessAllTenants) return true
   return (authStore.memberships ?? []).length > 1
 })
+
+// Viewer is a chat-only role: the account dropdown collapses to sign-out and
+// the notification bell is hidden. Both are navigation-only gates — the backend
+// still authorises every request.
+const isViewer = computed(() => authStore.currentTenantRole === 'viewer')
 
 // 快捷入口使用“管理能力”而不是页面最低可见角色：成员名册和模型列表允许
 // viewer 浏览，但头像菜单里的“管理”入口只服务实际能执行管理操作的角色。

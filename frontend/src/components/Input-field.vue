@@ -68,6 +68,12 @@ const route = useRoute();
 const router = useRouter();
 const settingsStore = useSettingsStore();
 const mentionAuth = useAuthStore();
+
+// Viewer is a chat-only role: the composer hides the model picker and the
+// reasoning-effort picker so the input stays minimal. The model still resolves
+// through the normal agent/default path, so answers are unaffected — the user
+// just cannot re-point them.
+const isViewer = computed(() => mentionAuth.currentTenantRole === 'viewer');
 const browserConnection = useBrowserConnectionStore();
 const uiStore = useUIStore();
 const orgStore = useOrganizationStore();
@@ -3209,8 +3215,8 @@ defineExpose({
 
           <slot name="controls" />
 
-          <!-- 模型显示 -->
-          <t-tooltip :content="modelTriggerTooltip" :disabled="!modelTriggerTooltip">
+          <!-- 模型显示。Viewer 走固定模型（见 isViewer），不需要也不应自行切换。 -->
+          <t-tooltip v-if="!isViewer" :content="modelTriggerTooltip" :disabled="!modelTriggerTooltip">
             <div class="model-display" :class="{ 'agent-controlled': isModelLockedByAgent }">
               <div ref="modelButtonRef" class="model-selector-trigger" @click.stop="toggleModelSelector">
                 <span class="model-selector-name">
@@ -3232,7 +3238,7 @@ defineExpose({
               </div>
             </div>
           </t-tooltip>
-          <t-popup v-if="!embeddedMode && reasoningLevels.length > 0" v-model:visible="showReasoningSelector"
+          <t-popup v-if="!embeddedMode && !isViewer && reasoningLevels.length > 0" v-model:visible="showReasoningSelector"
             trigger="click" placement="top-right" :disabled="composerLocked"
             :overlay-inner-style="{ padding: '4px', borderRadius: 'var(--app-radius-lg)' }"
             @visible-change="handleReasoningVisibleChange">

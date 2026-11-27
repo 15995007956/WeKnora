@@ -78,11 +78,13 @@ export const useMenuStore = defineStore('menuStore', () => {
   // viewer / contributor 即便在共享空间里拥有资源，也无需自行管理共享关系，
   // 入口在侧栏只会徒增噪音；后端 RBAC 才是权限的最终来源（见 middleware/rbac.go）。
   //
-  // 查看者 (viewer) 只保留提问能力：「知识库 / 智能体 / 产物」的入口一律隐藏。
-  // 这三项对 viewer 是只读的浏览面（后端 RBAC 已禁止其创建与上传），
-  // 名单制企业里查看者的职责就是问答，侧栏保持最简可减少误操作与困惑。
-  // 注意这只是导航层的收敛：直接访问路由仍由后端 RBAC 拦截，权限判定不变。
-  const viewerHiddenPaths = new Set(['knowledge-bases', 'agents', 'artifacts'])
+  // 查看者 (viewer) 只保留提问能力：侧栏仅剩「新对话」和历史会话列表。
+  //
+  // 这是一套名单制、以问答为中心的使用方式——查看者在企业里就是来提问的。
+  // 「知识库 / 智能体 / 产物」是只读浏览面（后端 RBAC 已禁止其创建与上传），
+  // 「自动化 / 工具箱 / 用户中心 / 设置」则与其职责无关，一律隐藏。
+  // 注意这只是导航层收敛：直接访问路由仍由后端 RBAC 拦截，权限判定不变。
+  const VIEWER_ALLOWED_PATHS = new Set(['creatChat'])
 
   const visibleMenuArr = computed(() => {
     const authStore = useAuthStore()
@@ -92,7 +94,9 @@ export const useMenuStore = defineStore('menuStore', () => {
       if (authStore.isLiteMode && liteHiddenPaths.has(item.path)) {
         return false
       }
-      if (isViewer && viewerHiddenPaths.has(item.path)) {
+      // logout is the only non-sidebar entry kept: the account dropdown still
+      // needs a way out (UserMenu renders it separately from menuArr).
+      if (isViewer && !VIEWER_ALLOWED_PATHS.has(item.path) && item.path !== 'logout') {
         return false
       }
       if (item.path === 'organizations' && !authStore.hasRole('admin')) {
